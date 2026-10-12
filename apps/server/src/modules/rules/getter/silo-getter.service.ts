@@ -42,10 +42,25 @@ import { MetadataRuleValueService } from './metadata-rule-value.service';
  * - Only real plays count. An item marked watched by hand in Silo has no
  *   playback history.
  */
+interface StoredCollection {
+  id: string;
+  title: string;
+  memberIds: string[];
+}
+
+// Collections read in parallel while a rule run builds its membership map.
+const COLLECTION_READ_CONCURRENCY = 4;
+
 @Injectable()
 export class SiloGetterService {
   siloProperties: Property[];
   private readonly cache: Cache;
+  // One in-flight collection sweep per library, shared by every item the
+  // executor evaluates concurrently.
+  private readonly collectionReads = new Map<
+    string,
+    Promise<StoredCollection[]>
+  >();
 
   constructor(
     private readonly siloAdapter: SiloAdapterService,
@@ -663,37 +678,67 @@ export class SiloGetterService {
     libraryId: string,
   ): Promise<Array<{ id: string; title: string; memberIds: Set<string> }>> {
     const cacheKey = `silo:rule-collections:${libraryId}`;
-    const cached =
-      this.cache.data.get<
-        Array<{ id: string; title: string; memberIds: string[] }>
-      >(cacheKey);
-    const collections =
-      cached ??
-      (await Promise.all(
-        (await this.siloAdapter.getCollections(libraryId))
-          .filter((collection) => !collection.smart)
-          .map(async (collection) => ({
-            id: collection.id,
-            title: collection.title.trim(),
-            memberIds: await this.siloAdapter.getCollectionMemberIds(
-              collection.id,
-            ),
-          })),
-      ));
-    if (!cached) {
-      this.cache.data.set(cacheKey, collections, 600);
-      this.logger.debug(
-        `Silo library ${libraryId} collections counted by rules: ${
-          collections
-            .map(
-              (collection) =>
-                `'${collection.title}' (${collection.id}, ${collection.memberIds.length} members)`,
-            )
-            .join(', ') || 'none'
-        }`,
+    const cached = this.cache.data.get<StoredCollection[]>(cacheKey);
+    if (cached) return SiloGetterService.withMemberSets(cached);
+
+    // The executor evaluates many items at once. Without sharing the read,
+    // every item that misses the cache starts its own sweep of every
+    // collection, and Silo answers the burst with 429s.
+    let pending: Promise<StoredCollection[]> | undefined =
+      this.collectionReads.get(libraryId);
+    if (pending === undefined) {
+      pending = this.readStoredCollections(libraryId)
+        .then((collections) => {
+          this.cache.data.set(cacheKey, collections, 600);
+          return collections;
+        })
+        .finally(() => this.collectionReads.delete(libraryId));
+      this.collectionReads.set(libraryId, pending);
+    }
+
+    return SiloGetterService.withMemberSets(await pending);
+  }
+
+  private async readStoredCollections(
+    libraryId: string,
+  ): Promise<StoredCollection[]> {
+    const listed = (await this.siloAdapter.getCollections(libraryId)).filter(
+      (collection) => !collection.smart,
+    );
+
+    const collections: StoredCollection[] = [];
+    for (let i = 0; i < listed.length; i += COLLECTION_READ_CONCURRENCY) {
+      collections.push(
+        ...(await Promise.all(
+          listed
+            .slice(i, i + COLLECTION_READ_CONCURRENCY)
+            .map(async (collection) => ({
+              id: collection.id,
+              title: collection.title.trim(),
+              memberIds: await this.siloAdapter.getCollectionMemberIds(
+                collection.id,
+              ),
+            })),
+        )),
       );
     }
 
+    this.logger.debug(
+      `Silo library ${libraryId} collections counted by rules: ${
+        collections
+          .map(
+            (collection) =>
+              `'${collection.title}' (${collection.id}, ${collection.memberIds.length} members)`,
+          )
+          .join(', ') || 'none'
+      }`,
+    );
+    return collections;
+  }
+
+  private static withMemberSets(
+    collections: StoredCollection[],
+  ): Array<{ id: string; title: string; memberIds: Set<string> }> {
     return collections.map((collection) => ({
       ...collection,
       memberIds: new Set(collection.memberIds),

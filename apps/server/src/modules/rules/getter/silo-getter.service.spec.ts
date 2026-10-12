@@ -169,4 +169,33 @@ describe('SiloGetterService', () => {
       getter.get(propId('collections'), createItem(), 'movie', ruleGroup),
     ).resolves.toBe(1);
   });
+
+  it('reads each collection once for items evaluated together', async () => {
+    silo.getMetadata.mockImplementation(async (id) =>
+      createItem({ id: String(id) }),
+    );
+    silo.getCollections.mockResolvedValue([
+      { id: 'c1', title: 'James Bond', childCount: 2 },
+      { id: 'c2', title: 'Other', childCount: 0 },
+    ]);
+    silo.getCollectionMemberIds.mockImplementation(async (id) =>
+      id === 'c1' ? ['movie-tmdb-1', 'movie-tmdb-2'] : [],
+    );
+    const ruleGroup = createRuleGroupDto({ libraryId: '1' });
+
+    const counts = await Promise.all(
+      ['movie-tmdb-1', 'movie-tmdb-2', 'movie-tmdb-3'].map((id) =>
+        getter.get(
+          propId('collections'),
+          createItem({ id }),
+          'movie',
+          ruleGroup,
+        ),
+      ),
+    );
+
+    expect(counts).toEqual([1, 1, 0]);
+    expect(silo.getCollections).toHaveBeenCalledTimes(1);
+    expect(silo.getCollectionMemberIds).toHaveBeenCalledTimes(2);
+  });
 });
