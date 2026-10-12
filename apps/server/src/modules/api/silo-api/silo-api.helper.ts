@@ -1,7 +1,8 @@
 import { stripTrailingSlashes } from '@maintainerr/contracts';
-import axios, { type AxiosInstance } from 'axios';
+import axios, { type AxiosInstance, isAxiosError } from 'axios';
 import { applyHttpRetry } from '../lib/httpRetry';
 import { MEDIA_SERVER_REQUEST_TIMEOUT_MS } from '../lib/httpTimeouts';
+import { SiloRequestPacer } from './silo-request-pacer';
 
 interface SiloApiOptions {
   url: string;
@@ -31,6 +32,26 @@ export class SiloApi {
         Authorization: `Bearer ${options.apiKey}`,
       },
     });
+
+    // Registered before the retry policy, so a retried request is paced
+    // like any other.
+    const pacer = new SiloRequestPacer();
+    this.axios.interceptors.request.use(async (config) => {
+      await pacer.acquire();
+      return config;
+    });
+    this.axios.interceptors.response.use(
+      (response) => {
+        pacer.observeLimit(response.headers?.['x-ratelimit-limit']);
+        return response;
+      },
+      (error: unknown) => {
+        if (isAxiosError(error)) {
+          pacer.observeLimit(error.response?.headers?.['x-ratelimit-limit']);
+        }
+        return Promise.reject(error);
+      },
+    );
 
     applyHttpRetry(this.axios);
   }
