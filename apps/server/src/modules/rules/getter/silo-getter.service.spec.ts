@@ -50,6 +50,7 @@ describe('SiloGetterService', () => {
 
   afterEach(() => {
     cacheManager.getCache('silo').flush();
+    cacheManager.getCache('silorun').flush();
   });
 
   it('keeps the Jellyfin id of every property it shares, so rules move between servers unchanged', () => {

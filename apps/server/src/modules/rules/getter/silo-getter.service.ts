@@ -8,6 +8,7 @@ import {
 import { Injectable } from '@nestjs/common';
 import cacheManager, { Cache } from '../../api/lib/cache';
 import { SiloAdapterService } from '../../api/media-server/silo/silo-adapter.service';
+import { RULE_COLLECTIONS_KEY_PREFIX } from '../../api/media-server/silo/silo.constants';
 import { MaintainerrLogger } from '../../logging/logs.service';
 import {
   Application,
@@ -73,7 +74,8 @@ export class SiloGetterService {
     this.siloProperties =
       ruleConstants.applications.find((el) => el.id === Application.SILO)
         ?.props ?? [];
-    this.cache = cacheManager.getCache('silo');
+    // Run-wide, unbounded: see the 'silorun' entry in api/lib/cache.ts.
+    this.cache = cacheManager.getCache('silorun');
   }
 
   async get(
@@ -734,7 +736,7 @@ export class SiloGetterService {
   private async getStoredCollections(
     libraryId: string,
   ): Promise<Array<{ id: string; title: string; memberIds: Set<string> }>> {
-    const cacheKey = `silo:rule-collections:${libraryId}`;
+    const cacheKey = `${RULE_COLLECTIONS_KEY_PREFIX}${libraryId}`;
     const cached = this.cache.data.get<StoredCollection[]>(cacheKey);
     if (cached) return SiloGetterService.withMemberSets(cached);
 

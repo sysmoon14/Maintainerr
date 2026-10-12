@@ -2588,6 +2588,7 @@ export class RulesService {
         } else if (serverType === MediaServerType.SILO) {
           cacheManager.getCache('silo').flush();
           cacheManager.getCache('silowatchhistory').flush();
+          cacheManager.getCache('silorun').flush();
           this.logger.log(
             `Flushed Silo cache because a rule in the group required it`,
           );

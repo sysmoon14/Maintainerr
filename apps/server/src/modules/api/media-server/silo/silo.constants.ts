@@ -42,6 +42,10 @@ export const SILO_CACHE_KEYS = {
 // single endpoint, so it is not split per library like the Jellyfin sweep.
 export const SILO_WATCH_SNAPSHOT_KEY = 'silo:watch-snapshot';
 
+// The rule getter's per-library map of collections and their members, kept
+// in the 'silorun' cache next to the adapter's run-wide reads.
+export const RULE_COLLECTIONS_KEY_PREFIX = 'silo:rule-collections:';
+
 // The library kinds Maintainerr can manage, keyed by Silo's library type.
 // Silo stores the type as free text ("movies", "TV", " Movies ") and matches
 // it trimmed and lowercased against these spellings (internal/librarykind).

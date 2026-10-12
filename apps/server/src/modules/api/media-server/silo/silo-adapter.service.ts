@@ -45,6 +45,7 @@ import {
   SILO_CACHE_KEYS,
   SILO_CACHE_TTL,
   SILO_SERVER_NAME,
+  RULE_COLLECTIONS_KEY_PREFIX,
   SILO_WATCH_SNAPSHOT_KEY,
 } from './silo.constants';
 import { SiloMapper } from './silo.mapper';
@@ -149,6 +150,12 @@ export class SiloAdapterService implements IMediaServerService {
   private siloUrl: string | undefined;
   private readonly cache: Cache;
   private readonly snapshotCache: Cache;
+  // Run-wide reads (libraries, collections, listings, per-profile lists) live
+  // outside the per-item cache: that one is bounded and evicts its oldest
+  // keys, which a rule run over a large library reaches part-way through,
+  // and these would then be read again mid-run. This one is unbounded and
+  // still cleared at the start of every run.
+  private readonly runCache: Cache;
   // Shared in-flight metadata reads, keyed by item id. See getMetadata.
   private readonly metadataRequests = new Map<
     string,
@@ -169,6 +176,7 @@ export class SiloAdapterService implements IMediaServerService {
     this.logger.setContext(SiloAdapterService.name);
     this.cache = cacheManager.getCache('silo');
     this.snapshotCache = cacheManager.getCache('silowatchhistory');
+    this.runCache = cacheManager.getCache('silorun');
   }
 
   // ============================================================================
@@ -221,6 +229,7 @@ export class SiloAdapterService implements IMediaServerService {
     this.watchedMarks = undefined;
     this.cache.flush();
     this.snapshotCache.flush();
+    this.runCache.flush();
   }
 
   isSetup(): boolean {
@@ -427,7 +436,7 @@ export class SiloAdapterService implements IMediaServerService {
   async getLibraries(): Promise<MediaLibrary[]> {
     if (!this.http) return [];
     try {
-      const cached = this.cache.data.get<MediaLibrary[]>(
+      const cached = this.runCache.data.get<MediaLibrary[]>(
         SILO_CACHE_KEYS.LIBRARIES,
       );
       if (cached) return cached;
@@ -451,7 +460,7 @@ export class SiloAdapterService implements IMediaServerService {
       }
       const libraries = usable.map(SiloMapper.toMediaLibrary);
 
-      this.cache.data.set(
+      this.runCache.data.set(
         SILO_CACHE_KEYS.LIBRARIES,
         libraries,
         SILO_CACHE_TTL.LIBRARIES,
@@ -696,7 +705,7 @@ export class SiloAdapterService implements IMediaServerService {
       // A detail read names neither the item's added date nor its library;
       // only listing cards carry those. Take them from the listing that
       // surfaced the item, or the date from its oldest file.
-      const listed = this.cache.data.get<ListedItem>(
+      const listed = this.runCache.data.get<ListedItem>(
         `${SILO_CACHE_KEYS.LISTED}:${itemId}`,
       );
       const mediaItem = SiloMapper.toMediaItem(
@@ -1142,14 +1151,14 @@ export class SiloAdapterService implements IMediaServerService {
     if (!this.http) {
       throw new Error('Silo not initialized');
     }
-    const cached = this.cache.data.get<SiloProfileLists>(
+    const cached = this.runCache.data.get<SiloProfileLists>(
       SILO_CACHE_KEYS.PROFILE_LISTS,
     );
     if (cached) return cached;
 
     this.profileListsRead ??= this.readProfileLists()
       .then((lists) => {
-        this.cache.data.set(
+        this.runCache.data.set(
           SILO_CACHE_KEYS.PROFILE_LISTS,
           lists,
           SILO_CACHE_TTL.WATCH_HISTORY,
@@ -1280,7 +1289,7 @@ export class SiloAdapterService implements IMediaServerService {
     const cacheKey = `${SILO_CACHE_KEYS.COLLECTIONS}:${libraryId}`;
     // Still written back on a live read, so per-item reads stay warm.
     const cached = useCache
-      ? this.cache.data.get<MediaCollection[]>(cacheKey)
+      ? this.runCache.data.get<MediaCollection[]>(cacheKey)
       : undefined;
     if (cached) return cached;
 
@@ -1290,7 +1299,7 @@ export class SiloAdapterService implements IMediaServerService {
           library_id: libraryId,
         })
       ).map(SiloMapper.toMediaCollection);
-      this.cache.data.set(cacheKey, collections, SILO_CACHE_TTL.COLLECTIONS);
+      this.runCache.data.set(cacheKey, collections, SILO_CACHE_TTL.COLLECTIONS);
       return collections;
     } catch (error) {
       this.logger.error(
@@ -1653,14 +1662,14 @@ export class SiloAdapterService implements IMediaServerService {
 
   private invalidateCollectionsCache(libraryId?: string): void {
     if (libraryId) {
-      this.cache.data.del(`${SILO_CACHE_KEYS.COLLECTIONS}:${libraryId}`);
+      this.runCache.data.del(`${SILO_CACHE_KEYS.COLLECTIONS}:${libraryId}`);
       return;
     }
     const prefix = `${SILO_CACHE_KEYS.COLLECTIONS}:`;
-    const stale = this.cache.data
+    const stale = this.runCache.data
       .keys()
       .filter((key) => key.startsWith(prefix));
-    if (stale.length > 0) this.cache.data.del(stale);
+    if (stale.length > 0) this.runCache.data.del(stale);
   }
 
   // ============================================================================
@@ -1712,6 +1721,15 @@ export class SiloAdapterService implements IMediaServerService {
   // reset. Watch history is unaffected; it never comes from this cache alone.
   resetMetadataCache(): void {
     this.cache.flush();
+    // Membership and per-profile lists can change between tests of one item;
+    // listings and libraries are kept so a test reads the same added date a
+    // run does.
+    this.invalidateCollectionsCache();
+    this.runCache.data.del(SILO_CACHE_KEYS.PROFILE_LISTS);
+    for (const key of this.runCache.data.keys()) {
+      if (key.startsWith(RULE_COLLECTIONS_KEY_PREFIX))
+        this.runCache.data.del(key);
+    }
   }
 
   async refreshItemMetadata(itemId: string): Promise<void> {
@@ -1900,7 +1918,7 @@ export class SiloAdapterService implements IMediaServerService {
     library?: { id: string; title: string },
   ): void {
     if (!row.added_at && !library) return;
-    this.cache.data.set<ListedItem>(
+    this.runCache.data.set<ListedItem>(
       `${SILO_CACHE_KEYS.LISTED}:${row.content_id}`,
       { addedAt: row.added_at, library },
       SILO_CACHE_TTL.LIBRARY_SEASONS,
@@ -1975,7 +1993,7 @@ export class SiloAdapterService implements IMediaServerService {
    */
   private async getLibrarySeasons(libraryId: string): Promise<MediaItem[]> {
     const cacheKey = `${SILO_CACHE_KEYS.LIBRARY_SEASONS}:${libraryId}`;
-    const cached = this.cache.data.get<MediaItem[]>(cacheKey);
+    const cached = this.runCache.data.get<MediaItem[]>(cacheKey);
     if (cached) return cached;
 
     const library = await this.getLibraryRef(libraryId);
@@ -1993,7 +2011,7 @@ export class SiloAdapterService implements IMediaServerService {
       for (const result of results) seasons.push(...result);
     }
 
-    this.cache.data.set(cacheKey, seasons, SILO_CACHE_TTL.LIBRARY_SEASONS);
+    this.runCache.data.set(cacheKey, seasons, SILO_CACHE_TTL.LIBRARY_SEASONS);
     return seasons;
   }
 

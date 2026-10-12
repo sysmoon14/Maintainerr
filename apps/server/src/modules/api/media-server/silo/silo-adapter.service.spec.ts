@@ -228,6 +228,7 @@ describe('SiloAdapterService', () => {
 
   beforeEach(async () => {
     cacheManager.getCache('silo').flush();
+    cacheManager.getCache('silorun').flush();
     cacheManager.getCache('silowatchhistory').flush();
 
     silo = new FakeSilo();
@@ -358,6 +359,23 @@ describe('SiloAdapterService', () => {
         { id: '5', title: 'Films', type: 'movie' },
         { id: '6', title: 'TV', type: 'show' },
       ]);
+    });
+
+    it('keeps run-wide reads when a large library fills the per-item cache', async () => {
+      silo.on(
+        'GET',
+        '/libraries',
+        page([{ id: '1', name: 'Movies', type: 'movies', enabled: true }]),
+      );
+      await service.getLibraries();
+
+      // More per-item entries than the bounded cache holds, as one run over a
+      // large library writes; it evicts its oldest keys to make room.
+      const perItem = cacheManager.getCache('silo');
+      for (let i = 0; i < 1500; i++) perItem.data.set(`silo:metadata:${i}`, {});
+      await service.getLibraries();
+
+      expect(silo.callsTo('GET', '/libraries')).toHaveLength(1);
     });
   });
 

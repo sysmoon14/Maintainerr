@@ -19,6 +19,7 @@ type AvailableCacheIds =
   | 'emby'
   | 'silo'
   | 'silowatchhistory'
+  | 'silorun'
   | 'sportarrmetadata';
 
 type CacheType = AvailableCacheIds | 'radarr' | 'sonarr' | 'sportarr';
@@ -244,6 +245,17 @@ class CacheManager {
         maxKeys: 0,
       },
     ),
+    // Silo reads made once per rule run and shared by every item: libraries,
+    // collections and their members, listing dates, season listings and the
+    // per-profile favourites and watchlists. Unbounded like the watch history
+    // snapshot, because the bounded 'silo' cache evicts its oldest keys part-way
+    // through a large library and these would be read again mid-run. Not
+    // persistent, so every run starts from a fresh read.
+    silorun: new Cache('silorun', 'Silo rule run', 'silorun', {
+      stdTtl: 1800, // 30 min
+      useClones: false,
+      maxKeys: 0,
+    }),
     // Artwork and descriptions for Sportarr leagues. Long-lived like the tmdb
     // and tvdb caches: a league's poster changes rarely and every card asks
     // for it. The Sportarr card on the metadata settings page clears it.
