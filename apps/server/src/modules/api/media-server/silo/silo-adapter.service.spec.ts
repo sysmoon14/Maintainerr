@@ -58,6 +58,7 @@ class FakeSilo {
   }
 
   readonly http = {
+    defaults: { headers: { common: {} as Record<string, string> } },
     get: jest.fn((path: string, config?: { params?: Params }) =>
       this.answer('GET', path, config?.params),
     ),
@@ -88,6 +89,13 @@ class FakeSilo {
     headers?: Record<string, string>,
   ) {
     this.calls.push({ method, path, params, body, headers });
+    // Catalog reads act as a profile; Silo refuses them without one.
+    if (
+      path.startsWith('/catalog') &&
+      !this.http.defaults.headers.common['X-Profile-Id']
+    ) {
+      throw responseError(422);
+    }
     const declared = declaredQuery(path);
     if (Object.keys(params ?? {}).some((name) => !declared.includes(name))) {
       throw responseError(422);
@@ -189,7 +197,7 @@ describe('SiloAdapterService', () => {
         page([episode(1, 1), episode(1, 2)]),
       );
 
-  beforeEach(() => {
+  beforeEach(async () => {
     cacheManager.getCache('silo').flush();
     cacheManager.getCache('silowatchhistory').flush();
 
@@ -204,8 +212,33 @@ describe('SiloAdapterService', () => {
         error: jest.fn(),
       } as any,
     );
-    Object.assign(service, { http: silo.http, initialized: true });
     probeClient.http = silo.http;
+    silo
+      .on('GET', '/system/info', { api_major: 2, server_version: 'abc123' })
+      .on('GET', '/account/me', { id: '1', username: 'ann', role: 'admin' })
+      .on(
+        'GET',
+        '/profiles',
+        page([
+          { id: 'kids', name: 'Kids', is_primary: false },
+          {
+            id: 'ann-primary',
+            name: 'Ann',
+            is_primary: true,
+            library_restrictions_enabled: false,
+            max_content_rating: '',
+            max_advisory_age: null,
+          },
+        ]),
+      );
+    await service.initialize();
+    expect(service.isSetup()).toBe(true);
+  });
+
+  it("acts as the key owner's primary profile, which catalog reads require", () => {
+    expect(silo.http.defaults.headers.common['X-Profile-Id']).toBe(
+      'ann-primary',
+    );
   });
 
   describe('testConnection', () => {
@@ -680,6 +713,6 @@ describe('SiloAdapterService', () => {
     await expect(service.deleteFromDisk(movie.content_id)).rejects.toThrow(
       'Radarr or Sonarr',
     );
-    expect(silo.calls).toHaveLength(0);
+    expect(silo.calls.filter((call) => call.method !== 'GET')).toHaveLength(0);
   });
 });

@@ -57,6 +57,7 @@ import type {
   SiloCatalogPage,
   SiloCollection,
   SiloLibrary,
+  SiloOwnProfile,
   SiloPlaybackHistoryEntry,
   SiloPlaybackSession,
   SiloProfile,
@@ -148,7 +149,7 @@ export class SiloAdapterService implements IMediaServerService {
     try {
       const [info] = await Promise.all([
         http.get<SiloSystemInfo>('/system/info'),
-        this.assertAdministrator(http),
+        this.authenticate(http),
       ]);
       this.http = http;
       this.siloUrl = url;
@@ -201,7 +202,7 @@ export class SiloAdapterService implements IMediaServerService {
       const config = connectionTestConfig(timeoutMs);
       const [info] = await Promise.all([
         probe.get<SiloSystemInfo>('/system/info', config),
-        this.assertAdministrator(probe, config),
+        this.authenticate(probe, config),
       ]);
       return {
         success: true,
@@ -218,20 +219,49 @@ export class SiloAdapterService implements IMediaServerService {
   }
 
   /**
+   * Check the key and choose the profile every request acts as.
+   *
    * Every read Maintainerr depends on is an administrator route, and a key
-   * owned by an ordinary account answers 403 on each of them one at a time.
-   * Refuse it up front instead.
+   * owned by an ordinary account answers 403 on each of them one at a time,
+   * so it is refused up front.
+   *
+   * Silo's catalog reads require an acting profile (X-Profile-Id), and
+   * administrator routes only accept the account's primary profile, so every
+   * request names that one. An API key is never asked for a profile PIN.
    */
-  private async assertAdministrator(
+  private async authenticate(
     http: AxiosInstance,
     config?: ReturnType<typeof connectionTestConfig>,
   ): Promise<void> {
-    const { data } = await http.get<SiloAccount>('/account/me', config);
-    if (data.role !== 'admin') {
+    const { data: account } = await http.get<SiloAccount>(
+      '/account/me',
+      config,
+    );
+    if (account.role !== 'admin') {
       throw new Error(
         'The Silo API key must belong to an administrator account',
       );
     }
+
+    const { data: profiles } = await http.get<SiloCollection<SiloOwnProfile>>(
+      '/profiles',
+      config,
+    );
+    this.assertItems(profiles, 'the account profiles');
+    const primary = profiles.items.find((profile) => profile.is_primary);
+    if (!primary) {
+      throw new Error('The Silo account has no primary profile');
+    }
+    if (
+      primary.library_restrictions_enabled ||
+      primary.max_content_rating ||
+      primary.max_advisory_age !== null
+    ) {
+      this.logger.warn(
+        `Silo profile '${primary.name}' has viewing restrictions; Maintainerr only sees what that profile can see`,
+      );
+    }
+    http.defaults.headers.common['X-Profile-Id'] = primary.id;
   }
 
   // ============================================================================

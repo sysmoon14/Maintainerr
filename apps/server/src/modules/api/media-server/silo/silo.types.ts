@@ -47,6 +47,16 @@ export interface SiloProfile {
   name: string;
 }
 
+/** GET /profiles - the profiles of the authenticated account */
+export interface SiloOwnProfile {
+  id: string;
+  name: string;
+  is_primary: boolean;
+  library_restrictions_enabled: boolean;
+  max_content_rating: string;
+  max_advisory_age: number | null;
+}
+
 /** GET /libraries */
 export interface SiloLibrary {
   id: string;
