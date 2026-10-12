@@ -39,8 +39,9 @@ import { MetadataRuleValueService } from './metadata-rule-value.service';
  *   episodes' history, the way Plex reads a show. `seenBy` on a show is
  *   everyone who finished any episode; `sw_allEpisodesSeenBy` is the
  *   finished-every-episode reading.
- * - Only real plays count. An item marked watched by hand in Silo has no
- *   playback history.
+ * - Watched means a finished play or a completed mark (by hand or from a
+ *   history import). Marks, favourites and watchlists are only readable for
+ *   profiles of the API key's account; see the adapter's model notes.
  */
 interface StoredCollection {
   id: string;
@@ -385,6 +386,52 @@ export class SiloGetterService {
             : null;
         }
 
+        case 'favoritedBy':
+        case 'sw_favoritedBy': {
+          return this.toUserNames(
+            await this.siloAdapter.getItemFavoritedBy([metadata.id]),
+          );
+        }
+
+        case 'sw_favoritedBy_including_parent': {
+          return this.toUserNames(
+            await this.siloAdapter.getItemFavoritedBy(
+              SiloGetterService.selfAndParents(metadata),
+            ),
+          );
+        }
+
+        case 'isInWatchlist': {
+          return (
+            (await this.siloAdapter.getItemWatchlistedBy([metadata.id]))
+              .length > 0
+          );
+        }
+
+        case 'watchlistedByUsers': {
+          return this.toUserNames(
+            await this.siloAdapter.getItemWatchlistedBy([metadata.id]),
+          );
+        }
+
+        case 'isInWatchlist_including_parent': {
+          return (
+            (
+              await this.siloAdapter.getItemWatchlistedBy(
+                SiloGetterService.selfAndParents(metadata),
+              )
+            ).length > 0
+          );
+        }
+
+        case 'watchlistedByUsers_including_parent': {
+          return this.toUserNames(
+            await this.siloAdapter.getItemWatchlistedBy(
+              SiloGetterService.selfAndParents(metadata),
+            ),
+          );
+        }
+
         case 'collection_siblings_lastViewedAt': {
           return await this.getCollectionSiblingsLastViewedAt(
             metadata.id,
@@ -405,6 +452,16 @@ export class SiloGetterService {
       this.logger.debug(error);
       return undefined;
     }
+  }
+
+  /**
+   * The item and the parents it carries. Reading the parents would only add
+   * a way to fail (#3877).
+   */
+  private static selfAndParents(item: MediaItem): string[] {
+    return [item.id, item.parentId, item.grandparentId].filter(
+      (id): id is string => Boolean(id),
+    );
   }
 
   private rating(

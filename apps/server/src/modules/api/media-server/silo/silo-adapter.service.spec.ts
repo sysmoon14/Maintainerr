@@ -12,7 +12,15 @@ jest.mock('../../silo-api/silo-api.helper', () => ({
 }));
 
 type Params = Record<string, unknown> | undefined;
-type Handler = (params: Params, body?: unknown) => unknown;
+type Handler = (params: Params, body?: unknown, profileId?: string) => unknown;
+
+/** The profiles of the key's account in the fake below. */
+const OWN_PROFILES = ['kids', 'ann-primary'];
+
+/** Routes that act as a profile and accept any profile of the account. */
+const isProfileScoped = (path: string): boolean =>
+  path.startsWith('/catalog') ||
+  ['/progress', '/favorites', '/watchlist'].includes(path);
 
 /**
  * The query parameters each GET route declares in Silo's OpenAPI contract.
@@ -40,6 +48,10 @@ const declaredQuery = (path: string): string[] => {
     return [...paged, 'user_id', 'profile_id', 'media_item_id', 'completed'];
   }
   if (path === '/admin/collections') return ['library_id'];
+  if (path === '/progress') return [...paged, 'status', 'library_id'];
+  if (path === '/favorites' || path === '/watchlist') {
+    return [...paged, 'image_size'];
+  }
   if (path.startsWith('/admin/collections/') && path.endsWith('/items')) {
     return paged;
   }
@@ -71,8 +83,11 @@ class FakeSilo {
 
   readonly http = {
     defaults: { headers: { common: {} as Record<string, string> } },
-    get: jest.fn((path: string, config?: { params?: Params }) =>
-      this.answer('GET', path, config?.params),
+    get: jest.fn(
+      (
+        path: string,
+        config?: { params?: Params; headers?: Record<string, string> },
+      ) => this.answer('GET', path, config?.params, undefined, config?.headers),
     ),
     post: jest.fn((path: string, body?: unknown) =>
       this.answer('POST', path, undefined, body),
@@ -101,12 +116,14 @@ class FakeSilo {
     headers?: Record<string, string>,
   ) {
     this.calls.push({ method, path, params, body, headers });
-    // Catalog reads act as a profile; Silo refuses them without one.
-    if (
-      path.startsWith('/catalog') &&
-      !this.http.defaults.headers.common['X-Profile-Id']
-    ) {
-      throw responseError(422);
+    const profileId =
+      headers?.['X-Profile-Id'] ??
+      this.http.defaults.headers.common['X-Profile-Id'];
+    // Catalog and per-profile reads act as a profile; Silo refuses them
+    // without one, and refuses a profile of another account.
+    if (isProfileScoped(path)) {
+      if (!profileId) throw responseError(422);
+      if (!OWN_PROFILES.includes(profileId)) throw responseError(403);
     }
     const declared = declaredQuery(path);
     if (Object.keys(params ?? {}).some((name) => !declared.includes(name))) {
@@ -114,7 +131,7 @@ class FakeSilo {
     }
     const handler = this.routes.get(`${method} ${path}`);
     if (!handler) throw responseError(404);
-    return { data: await handler(params, body) };
+    return { data: await handler(params, body, profileId) };
   }
 
   callsTo(method: string, path: string) {
@@ -228,6 +245,9 @@ describe('SiloAdapterService', () => {
     silo
       .on('GET', '/system/info', { api_major: 2, server_version: 'abc123' })
       .on('GET', '/account/me', { id: '1', username: 'ann', role: 'admin' })
+      .on('GET', '/progress', page([]))
+      .on('GET', '/favorites', page([]))
+      .on('GET', '/watchlist', page([]))
       .on(
         'GET',
         '/profiles',
@@ -557,6 +577,89 @@ describe('SiloAdapterService', () => {
       await expect(service.getWatchHistory(movie.content_id)).rejects.toThrow();
     });
 
+    const completedProgress =
+      (byProfile: Record<string, Array<[string, string]>>): Handler =>
+      (_params, _body, profileId) =>
+        page(
+          (byProfile[profileId!] ?? []).map(([itemId, updatedAt]) => ({
+            media_item_id: itemId,
+            completed: true,
+            updated_at: updatedAt,
+            position_seconds: 0,
+            duration_seconds: 0,
+          })),
+        );
+
+    it('counts an item marked watched like a finished play, once per profile', async () => {
+      silo
+        .on('GET', `/catalog/items/${movie.content_id}`, movie)
+        .on(
+          'GET',
+          '/admin/playback-history',
+          page([play({ profile_id: 'ann-primary' })]),
+        )
+        .on(
+          'GET',
+          '/progress',
+          completedProgress({
+            // Ann's finished play also left completed progress behind.
+            'ann-primary': [[movie.content_id, '2026-01-02T00:00:00.000Z']],
+            kids: [[movie.content_id, '2026-03-04T00:00:00.000Z']],
+          }),
+        );
+
+      await service.prefetchWatchHistory({ libraryId: '1' });
+      const history = await service.getWatchHistory(movie.content_id);
+
+      expect(history.map((record) => record.userId).sort()).toEqual([
+        'ann-primary',
+        'kids',
+      ]);
+      expect(
+        history.find((record) => record.userId === 'kids')?.watchedAt,
+      ).toEqual(new Date('2026-03-04T00:00:00.000Z'));
+      expect(
+        silo
+          .callsTo('GET', '/progress')
+          .map((call) => [call.headers?.['X-Profile-Id'], call.params?.status]),
+      ).toEqual([
+        ['kids', 'completed'],
+        ['ann-primary', 'completed'],
+      ]);
+    });
+
+    it('counts a mark in the live watch state that feeds deletions', async () => {
+      silo
+        .on('GET', `/catalog/items/${movie.content_id}`, movie)
+        .on('GET', '/admin/playback-history', page([]))
+        .on(
+          'GET',
+          '/progress',
+          completedProgress({
+            kids: [[movie.content_id, '2026-03-04T00:00:00.000Z']],
+          }),
+        );
+
+      await expect(service.getWatchState(movie.content_id)).resolves.toEqual({
+        viewCount: 1,
+        isWatched: true,
+      });
+    });
+
+    it('fails rather than answering "never watched" when marks cannot be read', async () => {
+      silo
+        .on('GET', `/catalog/items/${movie.content_id}`, movie)
+        .on('GET', '/admin/playback-history', page([]))
+        .on('GET', '/progress', () => {
+          throw responseError(502);
+        });
+
+      await service.prefetchWatchHistory({ libraryId: '1' });
+
+      await expect(service.getWatchHistory(movie.content_id)).rejects.toThrow();
+      await expect(service.getWatchState(movie.content_id)).rejects.toThrow();
+    });
+
     it('counts unfinished plays toward the last played date', async () => {
       silo
         .on('GET', `/catalog/items/${movie.content_id}`, movie)
@@ -574,6 +677,53 @@ describe('SiloAdapterService', () => {
       await expect(service.getLastPlayedAt(movie.content_id)).resolves.toEqual(
         new Date('2026-03-01T00:00:00.000Z'),
       );
+    });
+  });
+
+  describe('favourites and watchlists', () => {
+    const cards =
+      (byProfile: Record<string, string[]>): Handler =>
+      (_params, _body, profileId) =>
+        page(
+          (byProfile[profileId!] ?? []).map((contentId) => ({
+            ...movie,
+            content_id: contentId,
+          })),
+        );
+
+    it('names the profiles holding an item, reading each list once', async () => {
+      silo
+        .on(
+          'GET',
+          '/favorites',
+          cards({ kids: [movie.content_id], 'ann-primary': ['series-tvdb-9'] }),
+        )
+        .on('GET', '/watchlist', cards({ 'ann-primary': [movie.content_id] }));
+
+      await expect(
+        service.getItemFavoritedBy([movie.content_id]),
+      ).resolves.toEqual(['kids']);
+      await expect(
+        service.getItemFavoritedBy(['episode-tvdb-9-1-1', 'series-tvdb-9']),
+      ).resolves.toEqual(['ann-primary']);
+      await expect(
+        service.getItemWatchlistedBy([movie.content_id]),
+      ).resolves.toEqual(['ann-primary']);
+      await expect(service.getItemWatchlistedBy(['other'])).resolves.toEqual(
+        [],
+      );
+      expect(silo.callsTo('GET', '/favorites')).toHaveLength(2);
+      expect(silo.callsTo('GET', '/watchlist')).toHaveLength(2);
+    });
+
+    it('fails rather than answering "nobody" when a list cannot be read', async () => {
+      silo.on('GET', '/watchlist', () => {
+        throw responseError(502);
+      });
+
+      await expect(
+        service.getItemWatchlistedBy([movie.content_id]),
+      ).rejects.toThrow();
     });
   });
 

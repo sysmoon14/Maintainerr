@@ -1953,8 +1953,8 @@ export class RuleConstants {
 
     // Silo reuses the Jellyfin property ids and names for the same reason, so
     // a rule moves between Jellyfin, Emby and Silo unchanged. It lists only the
-    // properties Silo can answer: it has no per-profile ratings, favourites,
-    // playlists or tags an administrator can read.
+    // properties Silo can answer: it has no per-profile ratings, playlists or
+    // tags an administrator can read. Watchlists are Silo's own and follow.
     if (
       jellyfinApp &&
       !this.applications.some((a) => a.id === Application.SILO)
@@ -1963,9 +1963,12 @@ export class RuleConstants {
         id: Application.SILO,
         name: 'Silo',
         mediaType: MediaType.BOTH,
-        props: jellyfinApp.props.filter(
-          (prop) => !SILO_UNSUPPORTED_PROPERTIES.has(prop.name),
-        ),
+        props: [
+          ...jellyfinApp.props.filter(
+            (prop) => !SILO_UNSUPPORTED_PROPERTIES.has(prop.name),
+          ),
+          ...SILO_ONLY_PROPERTIES,
+        ],
       });
     }
   }
@@ -1977,7 +1980,44 @@ const SILO_UNSUPPORTED_PROPERTIES = new Set([
   'labels',
   'playlists',
   'playlist_names',
-  'favoritedBy',
-  'sw_favoritedBy',
-  'sw_favoritedBy_including_parent',
 ]);
+
+/**
+ * Properties only Silo answers. Their ids start well above Jellyfin's, so a
+ * property Jellyfin adds later never takes one. Names and wording follow the
+ * Streamystats watchlist properties.
+ */
+const SILO_ONLY_PROPERTIES: Property[] = [
+  {
+    id: 200,
+    name: 'isInWatchlist',
+    humanName: 'Is in a watchlist',
+    mediaType: MediaType.BOTH,
+    type: RuleType.BOOL,
+  },
+  {
+    id: 201,
+    name: 'watchlistedByUsers',
+    humanName: '[list] In watchlist of (username)',
+    mediaType: MediaType.BOTH,
+    type: RuleType.TEXT_LIST,
+  },
+  // A watchlist holds the show, not its seasons or episodes, so these roll
+  // the parent show (and season) in below show level.
+  {
+    id: 202,
+    name: 'isInWatchlist_including_parent',
+    humanName: 'Is in a watchlist (incl. parents)',
+    mediaType: MediaType.SHOW,
+    type: RuleType.BOOL,
+    showType: ['season', 'episode'],
+  },
+  {
+    id: 203,
+    name: 'watchlistedByUsers_including_parent',
+    humanName: '[list] In watchlist of (username) (incl. parents)',
+    mediaType: MediaType.SHOW,
+    type: RuleType.TEXT_LIST,
+    showType: ['season', 'episode'],
+  },
+];

@@ -35,6 +35,7 @@ export const SILO_CACHE_KEYS = {
   COLLECTIONS: 'silo:collections',
   WATCH_HISTORY: 'silo:watch-history',
   LIBRARY_SEASONS: 'silo:library-seasons',
+  PROFILE_LISTS: 'silo:profile-lists',
 } as const;
 
 // One snapshot of the whole server's playback history; Silo answers it from a

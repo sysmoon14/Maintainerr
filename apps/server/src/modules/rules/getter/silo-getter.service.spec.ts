@@ -57,7 +57,11 @@ describe('SiloGetterService', () => {
       propsOf(Application.JELLYFIN).map((prop) => [prop.name, prop.id]),
     );
 
-    for (const prop of propsOf(Application.SILO)) {
+    const shared = propsOf(Application.SILO).filter((prop) =>
+      jellyfinIds.has(prop.name),
+    );
+    expect(shared.length).toBeGreaterThan(40);
+    for (const prop of shared) {
       expect([prop.name, prop.id]).toEqual([
         prop.name,
         jellyfinIds.get(prop.name),
@@ -65,13 +69,84 @@ describe('SiloGetterService', () => {
     }
   });
 
+  it('gives its own properties ids no Jellyfin property uses', () => {
+    const jellyfinIds = new Set(
+      propsOf(Application.JELLYFIN).map((prop) => prop.id),
+    );
+    const own = propsOf(Application.SILO).filter(
+      (prop) =>
+        !propsOf(Application.JELLYFIN).some(
+          (other) => other.name === prop.name,
+        ),
+    );
+
+    expect(own.map((prop) => prop.name)).toEqual([
+      'isInWatchlist',
+      'watchlistedByUsers',
+      'isInWatchlist_including_parent',
+      'watchlistedByUsers_including_parent',
+    ]);
+    expect(own.filter((prop) => jellyfinIds.has(prop.id))).toEqual([]);
+  });
+
   it('answers null for a property Silo cannot read', async () => {
-    const favoritedBy = propsOf(Application.JELLYFIN).find(
-      (prop) => prop.name === 'favoritedBy',
+    const playlists = propsOf(Application.JELLYFIN).find(
+      (prop) => prop.name === 'playlists',
     )!.id;
 
-    await expect(getter.get(favoritedBy, createItem())).resolves.toBeNull();
+    await expect(getter.get(playlists, createItem())).resolves.toBeNull();
     expect(silo.getMetadata).not.toHaveBeenCalled();
+  });
+
+  it('names the profiles that favourited an item or its show', async () => {
+    const episode = createItem({
+      id: 'e1',
+      type: 'episode',
+      parentId: 's1',
+      grandparentId: 'show-1',
+    });
+    silo.getMetadata.mockResolvedValue(episode);
+    silo.getItemFavoritedBy.mockImplementation(async (ids) =>
+      ids.includes('show-1') ? ['p2'] : [],
+    );
+
+    await expect(
+      getter.get(propId('sw_favoritedBy'), episode, 'episode'),
+    ).resolves.toEqual([]);
+    await expect(
+      getter.get(propId('sw_favoritedBy_including_parent'), episode, 'episode'),
+    ).resolves.toEqual(['Kids (ann)']);
+    expect(silo.getItemFavoritedBy).toHaveBeenLastCalledWith([
+      'e1',
+      's1',
+      'show-1',
+    ]);
+  });
+
+  it('answers the watchlist properties from the profiles holding the item', async () => {
+    silo.getMetadata.mockResolvedValue(createItem());
+    silo.getItemWatchlistedBy.mockResolvedValue(['p1']);
+
+    await expect(
+      getter.get(propId('isInWatchlist'), createItem()),
+    ).resolves.toBe(true);
+    await expect(
+      getter.get(propId('watchlistedByUsers'), createItem()),
+    ).resolves.toEqual(['Ann']);
+
+    silo.getItemWatchlistedBy.mockResolvedValue([]);
+    await expect(
+      getter.get(propId('isInWatchlist'), createItem()),
+    ).resolves.toBe(false);
+  });
+
+  it('keeps a failed watchlist read transient', async () => {
+    silo.getMetadata.mockResolvedValue(createItem());
+    silo.getItemWatchlistedBy.mockRejectedValue(new Error('502'));
+
+    await expect(
+      getter.get(propId('isInWatchlist'), createItem()),
+    ).resolves.toBeUndefined();
   });
 
   it('keeps a failed metadata read transient', async () => {

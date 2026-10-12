@@ -137,6 +137,17 @@ export interface SiloCatalogItem {
   cast?: SiloCastMember[];
 }
 
+/**
+ * GET /progress - one profile's watch state per item. A completed entry is
+ * the item counting as watched, whether it was played to the end, marked
+ * watched by hand or brought in by a history import.
+ */
+export interface SiloProgressEntry {
+  media_item_id: string;
+  completed: boolean;
+  updated_at: string;
+}
+
 /** GET /catalog */
 export interface SiloCatalogPage extends SiloCollection<SiloCatalogItem> {
   /** Items in the whole result; an estimate unless total_exact */

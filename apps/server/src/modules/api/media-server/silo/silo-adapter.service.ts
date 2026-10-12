@@ -61,6 +61,7 @@ import type {
   SiloPlaybackHistoryEntry,
   SiloPlaybackSession,
   SiloProblem,
+  SiloProgressEntry,
   SiloProfile,
   SiloSeason,
   SiloServerIdentity,
@@ -83,6 +84,24 @@ const oldestFile = (item: SiloCatalogItem): string | undefined =>
     .map((version) => version.added_at)
     .filter((addedAt): addedAt is string => Boolean(addedAt))
     .sort()[0];
+
+/** Item id to the ids of the profiles holding it in a per-profile list. */
+type SiloProfileMembership = Map<string, string[]>;
+
+interface SiloProfileLists {
+  favorites: SiloProfileMembership;
+  watchlist: SiloProfileMembership;
+}
+
+/** Completed progress of the readable profiles, and when it was read. */
+interface SiloWatchedMarks {
+  readAt: number;
+  byItem: Map<string, WatchRecord[]>;
+}
+
+// The deletion-facing watch read accepts marks this old, so handling a whole
+// collection does not re-read every profile's progress per item.
+const LIVE_MARKS_MAX_AGE_MS = 60_000;
 
 interface SiloWatchSnapshot {
   /** Completed plays, newest first */
@@ -107,8 +126,14 @@ interface SiloWatchSnapshot {
  *   profile.
  * - Watch history is `GET /admin/playback-history`: every account's and
  *   profile's finalized plays, each with a completion flag. Only real plays
- *   are recorded there; an item marked watched by hand or brought in by a
- *   history import does not appear.
+ *   are recorded there, so it is joined with each profile's completed
+ *   progress (`GET /progress`), which also holds items marked watched by
+ *   hand or brought in by a history import. A profile with a mark and no
+ *   finished play counts as one view, dated when the mark was made.
+ * - Progress, favourites and watchlists are per-profile reads, and Silo only
+ *   lets a key act as profiles of its own account. Profiles of other
+ *   accounts count real plays only, and their favourites and watchlists are
+ *   not visible.
  * - A show or season has no plays of its own. Its history is its episodes'
  *   history, the same reading Plex gives a show.
  * - Collections are Silo's administrator library collections. Manual
@@ -130,6 +155,12 @@ export class SiloAdapterService implements IMediaServerService {
     Promise<MediaItem | undefined>
   >();
   private watchSnapshotPrefetch: Promise<void> | undefined;
+  // Profiles of the key's account: the only ones Silo lets Maintainerr act as.
+  private ownProfileIds: string[] = [];
+  private watchedMarks: SiloWatchedMarks | undefined;
+  private watchedMarksRead: Promise<SiloWatchedMarks> | undefined;
+  private profileListsRead: Promise<SiloProfileLists> | undefined;
+  private unreadableProfilesReported = false;
 
   constructor(
     private readonly settings: SettingsDataService,
@@ -160,11 +191,14 @@ export class SiloAdapterService implements IMediaServerService {
     const http = new SiloApi({ url, apiKey }).axios;
 
     try {
-      const [info] = await Promise.all([
+      const [info, ownProfiles] = await Promise.all([
         http.get<SiloSystemInfo>('/system/info'),
         this.authenticate(http),
       ]);
       this.http = http;
+      this.ownProfileIds = ownProfiles.map((profile) => profile.id);
+      this.watchedMarks = undefined;
+      this.unreadableProfilesReported = false;
       this.siloUrl = url;
       this.initialized = true;
       this.logger.log(
@@ -183,6 +217,8 @@ export class SiloAdapterService implements IMediaServerService {
     this.http = undefined;
     this.initialized = false;
     this.siloUrl = undefined;
+    this.ownProfileIds = [];
+    this.watchedMarks = undefined;
     this.cache.flush();
     this.snapshotCache.flush();
   }
@@ -245,7 +281,7 @@ export class SiloAdapterService implements IMediaServerService {
   private async authenticate(
     http: AxiosInstance,
     config?: ReturnType<typeof connectionTestConfig>,
-  ): Promise<void> {
+  ): Promise<SiloOwnProfile[]> {
     const { data: account } = await http.get<SiloAccount>(
       '/account/me',
       config,
@@ -275,6 +311,7 @@ export class SiloAdapterService implements IMediaServerService {
       );
     }
     http.defaults.headers.common['X-Profile-Id'] = primary.id;
+    return profiles.items;
   }
 
   // ============================================================================
@@ -791,6 +828,19 @@ export class SiloAdapterService implements IMediaServerService {
         this.addToSnapshot(snapshot, entry);
       }
 
+      // Read fresh at the start of every run. A failure fails the snapshot,
+      // so items fall back to per-item reads rather than lose their marks.
+      const marks = await this.getWatchedMarks(0, abortSignal);
+      for (const [itemId, itemMarks] of marks.byItem) {
+        snapshot.completed.set(
+          itemId,
+          SiloAdapterService.withMarks(
+            snapshot.completed.get(itemId) ?? [],
+            itemMarks,
+          ),
+        );
+      }
+
       this.snapshotCache.data.set(SILO_WATCH_SNAPSHOT_KEY, snapshot);
       this.logger.log(
         `Prefetched ${entries.length} Silo playback history entries`,
@@ -961,9 +1011,182 @@ export class SiloAdapterService implements IMediaServerService {
       '/admin/playback-history',
       { media_item_id: itemId, completed: 'true' },
     );
-    const records = entries.map(SiloMapper.toWatchRecord);
+    const marks = await this.getWatchedMarks(
+      useSnapshot ? SILO_CACHE_TTL.WATCH_HISTORY * 1000 : LIVE_MARKS_MAX_AGE_MS,
+    );
+    const records = SiloAdapterService.withMarks(
+      entries.map(SiloMapper.toWatchRecord),
+      marks.byItem.get(itemId) ?? [],
+    );
     this.cache.data.set(cacheKey, records, SILO_CACHE_TTL.WATCH_HISTORY);
     return [...records];
+  }
+
+  /**
+   * Adds a profile's mark when it has no finished play of the item, so a
+   * finished play and the mark it leaves behind count once.
+   */
+  private static withMarks(
+    plays: WatchRecord[],
+    marks: WatchRecord[],
+  ): WatchRecord[] {
+    const players = new Set(plays.map((record) => record.userId));
+    return [...plays, ...marks.filter((mark) => !players.has(mark.userId))];
+  }
+
+  /**
+   * Every readable profile's completed progress, keyed by item: items played
+   * to the end, marked watched by hand, or imported. Re-read when older than
+   * `maxAgeMs`; concurrent callers share one read. All-or-nothing: a failed
+   * profile throws rather than reading as "watched nothing".
+   */
+  private async getWatchedMarks(
+    maxAgeMs: number,
+    abortSignal?: AbortSignal,
+  ): Promise<SiloWatchedMarks> {
+    if (
+      this.watchedMarks &&
+      maxAgeMs > 0 &&
+      Date.now() - this.watchedMarks.readAt <= maxAgeMs
+    ) {
+      return this.watchedMarks;
+    }
+
+    this.watchedMarksRead ??= this.readWatchedMarks(abortSignal)
+      .then((marks) => {
+        this.watchedMarks = marks;
+        return marks;
+      })
+      .finally(() => {
+        this.watchedMarksRead = undefined;
+      });
+    return this.watchedMarksRead;
+  }
+
+  private async readWatchedMarks(
+    abortSignal?: AbortSignal,
+  ): Promise<SiloWatchedMarks> {
+    const readAt = Date.now();
+    const byItem = new Map<string, WatchRecord[]>();
+    for (const profileId of this.ownProfileIds) {
+      const entries = await this.readAllPages<SiloProgressEntry>(
+        '/progress',
+        { status: 'completed' },
+        abortSignal,
+        profileId,
+      );
+      for (const entry of entries) {
+        if (!entry.completed || !entry.media_item_id) continue;
+        const watchedAt = new Date(entry.updated_at);
+        const records = byItem.get(entry.media_item_id) ?? [];
+        records.push({
+          userId: profileId,
+          itemId: entry.media_item_id,
+          watchedAt: Number.isNaN(watchedAt.getTime()) ? undefined : watchedAt,
+        });
+        byItem.set(entry.media_item_id, records);
+      }
+    }
+    await this.reportUnreadableProfiles();
+    return { readAt, byItem };
+  }
+
+  /** Says once which profiles' marks, favourites and watchlists are unseen. */
+  private async reportUnreadableProfiles(): Promise<void> {
+    if (this.unreadableProfilesReported) return;
+    const own = new Set(this.ownProfileIds);
+    const others = (await this.getUsers()).filter((user) => !own.has(user.id));
+    this.unreadableProfilesReported = true;
+    if (others.length === 0) return;
+    this.logger.warn(
+      `Silo only lets Maintainerr read items marked watched, imported history, favourites and watchlists for profiles of the API key's account. Profiles of other accounts count finished plays only: ${others
+        .map((user) => user.name)
+        .join(', ')}`,
+    );
+  }
+
+  /**
+   * Profiles holding any of `itemIds` as a favourite. Only profiles of the
+   * key's account can be read; see the model notes.
+   */
+  async getItemFavoritedBy(itemIds: string[]): Promise<string[]> {
+    return SiloAdapterService.holders(
+      (await this.getProfileLists()).favorites,
+      itemIds,
+    );
+  }
+
+  /** Profiles with any of `itemIds` on their watchlist. */
+  async getItemWatchlistedBy(itemIds: string[]): Promise<string[]> {
+    return SiloAdapterService.holders(
+      (await this.getProfileLists()).watchlist,
+      itemIds,
+    );
+  }
+
+  private static holders(
+    membership: SiloProfileMembership,
+    itemIds: string[],
+  ): string[] {
+    return [
+      ...new Set(itemIds.flatMap((itemId) => membership.get(itemId) ?? [])),
+    ];
+  }
+
+  /**
+   * Every readable profile's favourites and watchlist, read once and shared
+   * by the items a rule run evaluates together. Cached in the Silo cache,
+   * which every run flushes first. A failed read throws; it is not cached.
+   */
+  private async getProfileLists(): Promise<SiloProfileLists> {
+    if (!this.http) {
+      throw new Error('Silo not initialized');
+    }
+    const cached = this.cache.data.get<SiloProfileLists>(
+      SILO_CACHE_KEYS.PROFILE_LISTS,
+    );
+    if (cached) return cached;
+
+    this.profileListsRead ??= this.readProfileLists()
+      .then((lists) => {
+        this.cache.data.set(
+          SILO_CACHE_KEYS.PROFILE_LISTS,
+          lists,
+          SILO_CACHE_TTL.WATCH_HISTORY,
+        );
+        return lists;
+      })
+      .finally(() => {
+        this.profileListsRead = undefined;
+      });
+    return this.profileListsRead;
+  }
+
+  private async readProfileLists(): Promise<SiloProfileLists> {
+    const lists: SiloProfileLists = {
+      favorites: new Map(),
+      watchlist: new Map(),
+    };
+    for (const profileId of this.ownProfileIds) {
+      for (const [path, membership] of [
+        ['/favorites', lists.favorites],
+        ['/watchlist', lists.watchlist],
+      ] as const) {
+        const items = await this.readAllPages<SiloCatalogItem>(
+          path,
+          {},
+          undefined,
+          profileId,
+        );
+        for (const item of items) {
+          const holders = membership.get(item.content_id) ?? [];
+          if (!holders.includes(profileId)) holders.push(profileId);
+          membership.set(item.content_id, holders);
+        }
+      }
+    }
+    await this.reportUnreadableProfiles();
+    return lists;
   }
 
   private async getLeafLastPlayedAt(
@@ -1525,10 +1748,15 @@ export class SiloAdapterService implements IMediaServerService {
    * is a broken read, and one that claims more without a cursor would loop or
    * stop short, so both throw rather than answer a partial list.
    */
+  /**
+   * Every page of a paginated route. `profileId` acts as that profile
+   * instead of the primary one, for the per-profile reads.
+   */
   private async readAllPages<T>(
     path: string,
     params: Record<string, string | number | undefined> = {},
     abortSignal?: AbortSignal,
+    profileId?: string,
   ): Promise<T[]> {
     const items: T[] = [];
     let cursor: string | undefined;
@@ -1542,6 +1770,7 @@ export class SiloAdapterService implements IMediaServerService {
           ...(cursor ? { cursor } : {}),
         },
         signal: abortSignal,
+        ...(profileId ? { headers: { 'X-Profile-Id': profileId } } : {}),
       });
       this.assertItems(data, path);
       items.push(...data.items);
