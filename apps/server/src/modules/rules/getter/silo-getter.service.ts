@@ -680,7 +680,19 @@ export class SiloGetterService {
             ),
           })),
       ));
-    if (!cached) this.cache.data.set(cacheKey, collections, 600);
+    if (!cached) {
+      this.cache.data.set(cacheKey, collections, 600);
+      this.logger.debug(
+        `Silo library ${libraryId} collections counted by rules: ${
+          collections
+            .map(
+              (collection) =>
+                `'${collection.title}' (${collection.id}, ${collection.memberIds.length} members)`,
+            )
+            .join(', ') || 'none'
+        }`,
+      );
+    }
 
     return collections.map((collection) => ({
       ...collection,
