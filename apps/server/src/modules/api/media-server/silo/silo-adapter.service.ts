@@ -299,7 +299,7 @@ export class SiloAdapterService implements IMediaServerService {
         const results = await Promise.all(
           batch.map(async (account) => ({
             account,
-            profiles: await this.readAllPages<SiloProfile>(
+            profiles: await this.readList<SiloProfile>(
               `/admin/users/${encodeURIComponent(account.id)}/profiles`,
             ),
           })),
@@ -354,7 +354,7 @@ export class SiloAdapterService implements IMediaServerService {
       );
       if (cached) return cached;
 
-      const all = await this.readAllPages<SiloLibrary>('/libraries');
+      const all = await this.readList<SiloLibrary>('/libraries');
       const usable = all.filter(
         (library) =>
           library.enabled &&
@@ -1010,7 +1010,7 @@ export class SiloAdapterService implements IMediaServerService {
 
     try {
       const collections = (
-        await this.readAllPages<SiloAdminCollection>('/admin/collections', {
+        await this.readList<SiloAdminCollection>('/admin/collections', {
           library_id: libraryId,
         })
       ).map(SiloMapper.toMediaCollection);
@@ -1438,7 +1438,8 @@ export class SiloAdapterService implements IMediaServerService {
   // ============================================================================
 
   /**
-   * Every item of a cursor-paginated collection. A page without an item list
+   * Every item of a cursor-paginated collection. Only for routes that take
+   * `limit` and `cursor`; see readList for the rest. A page without an item list
    * is a broken read, and one that claims more without a cursor would loop or
    * stop short, so both throw rather than answer a partial list.
    */
@@ -1473,6 +1474,23 @@ export class SiloAdapterService implements IMediaServerService {
     } while (cursor);
 
     return items;
+  }
+
+  /**
+   * A bounded collection Silo answers whole. Silo refuses query parameters
+   * a route does not declare (HTTP 422), so these routes are never sent the
+   * paging parameters readAllPages adds.
+   */
+  private async readList<T>(
+    path: string,
+    params: Record<string, string | number | undefined> = {},
+  ): Promise<T[]> {
+    const { data } = await this.http!.get<SiloCollection<T>>(path, { params });
+    this.assertItems(data, path);
+    if (data.page?.has_more) {
+      throw new Error(`Silo ${path} claimed more items than it returned`);
+    }
+    return data.items;
   }
 
   private assertItems<T>(
@@ -1562,7 +1580,7 @@ export class SiloAdapterService implements IMediaServerService {
   }
 
   private async readSeasonRows(seriesId: string): Promise<SiloSeason[]> {
-    return this.readAllPages<SiloSeason>(
+    return this.readList<SiloSeason>(
       `/catalog/series/${encodeURIComponent(seriesId)}/seasons`,
     );
   }
@@ -1581,7 +1599,7 @@ export class SiloAdapterService implements IMediaServerService {
   }
 
   private async readEpisodes(seasonId: string): Promise<MediaItem[]> {
-    const rows = await this.readAllPages<SiloCatalogItem>(
+    const rows = await this.readList<SiloCatalogItem>(
       `/catalog/items/${encodeURIComponent(seasonId)}/episodes`,
     );
     return rows.map((row) => SiloMapper.toMediaItem(row, { seasonId }));

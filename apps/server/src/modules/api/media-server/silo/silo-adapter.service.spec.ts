@@ -14,6 +14,28 @@ type Params = Record<string, unknown> | undefined;
 type Handler = (params: Params, body?: unknown) => unknown;
 
 /**
+ * The query parameters each GET route declares in Silo's OpenAPI contract.
+ * Silo answers 422 to any other parameter, so the fake does too.
+ */
+const declaredQuery = (path: string): string[] => {
+  const paged = ['limit', 'cursor'];
+  if (path === '/catalog') {
+    return ['library_id', 'type', 'q', 'sort', 'limit', 'cursor', 'seek'];
+  }
+  if (path === '/admin/users') return [...paged, 'identity'];
+  if (path === '/admin/sessions') return [...paged, 'user_id'];
+  if (path === '/admin/playback-history') {
+    return [...paged, 'user_id', 'profile_id', 'media_item_id', 'completed'];
+  }
+  if (path === '/admin/collections') return ['library_id'];
+  if (path.startsWith('/admin/collections/') && path.endsWith('/items')) {
+    return paged;
+  }
+  if (path.startsWith('/catalog/')) return ['image_size', 'library_id'];
+  return [];
+};
+
+/**
  * A stand-in Silo answering by method and path. A route that is not set up
  * answers 404, like Silo does for an unknown item.
  */
@@ -66,6 +88,10 @@ class FakeSilo {
     headers?: Record<string, string>,
   ) {
     this.calls.push({ method, path, params, body, headers });
+    const declared = declaredQuery(path);
+    if (Object.keys(params ?? {}).some((name) => !declared.includes(name))) {
+      throw responseError(422);
+    }
     const handler = this.routes.get(`${method} ${path}`);
     if (!handler) throw responseError(404);
     return { data: await handler(params, body) };
