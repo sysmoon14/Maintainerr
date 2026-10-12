@@ -60,6 +60,7 @@ import type {
   SiloOwnProfile,
   SiloPlaybackHistoryEntry,
   SiloPlaybackSession,
+  SiloProblem,
   SiloProfile,
   SiloSeason,
   SiloServerIdentity,
@@ -161,7 +162,7 @@ export class SiloAdapterService implements IMediaServerService {
       this.initialized = false;
       this.http = undefined;
       this.logger.warn(
-        `Failed to initialize Silo connection: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Failed to initialize Silo connection: ${this.describeFailure(error)}`,
       );
     }
   }
@@ -213,7 +214,7 @@ export class SiloAdapterService implements IMediaServerService {
       logConnectionTestError(this.logger, 'Silo', error);
       return {
         success: false,
-        error: formatConnectionFailureMessage(error, 'Connection failed'),
+        error: this.describeFailure(error),
       };
     }
   }
@@ -294,7 +295,7 @@ export class SiloAdapterService implements IMediaServerService {
       return status;
     } catch (error) {
       this.logger.debug(
-        `Silo getStatus failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo getStatus failed: ${this.describeFailure(error)}`,
       );
       return undefined;
     }
@@ -358,9 +359,7 @@ export class SiloAdapterService implements IMediaServerService {
       this.cache.data.set(SILO_CACHE_KEYS.USERS, users, SILO_CACHE_TTL.USERS);
       return users;
     } catch (error) {
-      this.logger.debug(
-        `Silo getUsers failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
-      );
+      this.logger.debug(`Silo getUsers failed: ${this.describeFailure(error)}`);
       if (throwOnError) {
         throw error;
       }
@@ -411,7 +410,7 @@ export class SiloAdapterService implements IMediaServerService {
       return libraries;
     } catch (error) {
       this.logger.warn(
-        `Silo getLibraries failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo getLibraries failed: ${this.describeFailure(error)}`,
       );
       return [];
     }
@@ -468,7 +467,7 @@ export class SiloAdapterService implements IMediaServerService {
       };
     } catch (error) {
       this.logger.warn(
-        `Silo getLibraryContents(${libraryId}) failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo getLibraryContents(${libraryId}) failed: ${this.describeFailure(error)}`,
       );
       // A fabricated empty page reads as end-of-library downstream, which
       // truncates rule evaluation and mass-removes the unevaluated tail from
@@ -497,7 +496,7 @@ export class SiloAdapterService implements IMediaServerService {
       return page.total;
     } catch (error) {
       this.logger.debug(
-        `Silo getLibraryContentCount(${libraryId}) failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo getLibraryContentCount(${libraryId}) failed: ${this.describeFailure(error)}`,
       );
       // Same contract as getLibraryContents: a fabricated count masks a
       // failed read from callers that gate work on it.
@@ -522,7 +521,7 @@ export class SiloAdapterService implements IMediaServerService {
       return await this.toMediaItems(page.items, library);
     } catch (error) {
       this.logger.debug(
-        `Silo searchLibraryContents failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo searchLibraryContents failed: ${this.describeFailure(error)}`,
       );
       return [];
     }
@@ -544,7 +543,7 @@ export class SiloAdapterService implements IMediaServerService {
       return await this.toMediaItems(page.items, library);
     } catch (error) {
       this.logger.debug(
-        `Silo getRecentlyAdded(${libraryId}) failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo getRecentlyAdded(${libraryId}) failed: ${this.describeFailure(error)}`,
       );
       return [];
     }
@@ -561,7 +560,7 @@ export class SiloAdapterService implements IMediaServerService {
       return await this.toMediaItems(page.items);
     } catch (error) {
       this.logger.debug(
-        `Silo searchContent failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo searchContent failed: ${this.describeFailure(error)}`,
       );
       return [];
     }
@@ -650,7 +649,7 @@ export class SiloAdapterService implements IMediaServerService {
       return mediaItem;
     } catch (error) {
       this.logger.debug(
-        `Silo getMetadata(${itemId}) failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo getMetadata(${itemId}) failed: ${this.describeFailure(error)}`,
       );
       return undefined;
     }
@@ -714,7 +713,7 @@ export class SiloAdapterService implements IMediaServerService {
       }
 
       this.logger.debug(
-        `Silo getChildrenMetadata(${parentId}) failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo getChildrenMetadata(${parentId}) failed: ${this.describeFailure(error)}`,
       );
       return [];
     }
@@ -1048,7 +1047,7 @@ export class SiloAdapterService implements IMediaServerService {
       return collections;
     } catch (error) {
       this.logger.error(
-        `Silo getCollections(${libraryId}) failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo getCollections(${libraryId}) failed: ${this.describeFailure(error)}`,
       );
       throw error;
     }
@@ -1080,7 +1079,7 @@ export class SiloAdapterService implements IMediaServerService {
 
       if (throwOnError) throw error;
       this.logger.debug(
-        `Silo getCollection(${collectionId}) failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo getCollection(${collectionId}) failed: ${this.describeFailure(error)}`,
       );
       return undefined;
     }
@@ -1112,10 +1111,7 @@ export class SiloAdapterService implements IMediaServerService {
       );
       collection = SiloMapper.toMediaCollection(data);
     } catch (error) {
-      const message = formatConnectionFailureMessage(
-        error,
-        'Connection failed',
-      );
+      const message = this.describeFailure(error);
       this.logger.warn(`Silo createCollection failed: ${message}`);
       throw new Error(`Failed to create Silo collection: ${message}`);
     }
@@ -1142,10 +1138,7 @@ export class SiloAdapterService implements IMediaServerService {
       );
       this.invalidateCollectionsCache();
     } catch (error) {
-      const message = formatConnectionFailureMessage(
-        error,
-        'Connection failed',
-      );
+      const message = this.describeFailure(error);
       throw new Error(`Failed to delete Silo collection: ${message}`);
     }
   }
@@ -1221,7 +1214,7 @@ export class SiloAdapterService implements IMediaServerService {
       );
     } catch (error) {
       this.logger.error(
-        `Silo getCollectionChildren(${collectionId}) failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo getCollectionChildren(${collectionId}) failed: ${this.describeFailure(error)}`,
       );
       // A swallowed enumeration failure reads as "the collection is empty"
       // downstream, which mass-resyncs rule-owned items.
@@ -1298,7 +1291,7 @@ export class SiloAdapterService implements IMediaServerService {
             );
           } catch (error) {
             this.logger.debug(
-              `Silo collection mutation for ${itemId} failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+              `Silo collection mutation for ${itemId} failed: ${this.describeFailure(error)}`,
             );
             recordMutationFailure(
               outcome,
@@ -1337,10 +1330,7 @@ export class SiloAdapterService implements IMediaServerService {
       this.invalidateCollectionsCache(params.libraryId);
       return SiloMapper.toMediaCollection(data);
     } catch (error) {
-      const message = formatConnectionFailureMessage(
-        error,
-        'Connection failed',
-      );
+      const message = this.describeFailure(error);
       throw new Error(`Failed to update Silo collection: ${message}`);
     }
   }
@@ -1450,7 +1440,7 @@ export class SiloAdapterService implements IMediaServerService {
       );
     } catch (error) {
       this.logger.error(
-        `Silo refreshItemMetadata(${itemId}) failed: ${formatConnectionFailureMessage(error, 'Connection failed')}`,
+        `Silo refreshItemMetadata(${itemId}) failed: ${this.describeFailure(error)}`,
       );
       throw error;
     }
@@ -1521,6 +1511,28 @@ export class SiloAdapterService implements IMediaServerService {
       throw new Error(`Silo ${path} claimed more items than it returned`);
     }
     return data.items;
+  }
+
+  /**
+   * The connection failure, plus what Silo said was wrong. Silo answers
+   * errors as RFC 9457 problem details, and a bare "422" names nothing.
+   */
+  private describeFailure(error: unknown): string {
+    const message = formatConnectionFailureMessage(error, 'Connection failed');
+    const problem = isAxiosError(error)
+      ? (error.response?.data as SiloProblem | undefined)
+      : undefined;
+    if (!problem || typeof problem !== 'object') return message;
+
+    const details = (problem.errors ?? [])
+      .map((detail) =>
+        [detail.location, detail.detail].filter(Boolean).join(': '),
+      )
+      .filter((detail) => detail.length > 0);
+    const summary = details.length > 0 ? details.join('; ') : problem.detail;
+    return summary || problem.title
+      ? `${message} (${[problem.title, summary].filter(Boolean).join(' - ')})`
+      : message;
   }
 
   private assertItems<T>(

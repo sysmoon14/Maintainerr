@@ -200,3 +200,10 @@ export interface SiloAdminCollectionItem {
   /** Catalog title when the item is available */
   title?: string;
 }
+
+/** An RFC 9457 problem document, the shape of every Silo error response */
+export interface SiloProblem {
+  title?: string;
+  detail?: string;
+  errors?: Array<{ location?: string; detail?: string }>;
+}
