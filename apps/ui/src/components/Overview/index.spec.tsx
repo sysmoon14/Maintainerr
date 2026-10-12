@@ -106,6 +106,7 @@ const buildMediaServerTypeResult = (
   isPlex: mediaServerType === MediaServerType.PLEX,
   isJellyfin: mediaServerType === MediaServerType.JELLYFIN,
   isEmby: mediaServerType === MediaServerType.EMBY,
+  isSilo: mediaServerType === MediaServerType.SILO,
   isMediaServerTypeSelected: true,
   isSetupComplete: true,
   isNotConfigured: false,

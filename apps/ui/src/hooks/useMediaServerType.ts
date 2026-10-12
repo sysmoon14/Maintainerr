@@ -13,6 +13,8 @@ type MediaServerSetupSettings =
       | 'jellyfin_api_key'
       | 'emby_url'
       | 'emby_api_key'
+      | 'silo_url'
+      | 'silo_api_key'
     >
   | null
   | undefined
@@ -34,6 +36,10 @@ export const hasCompletedMediaServerSetup = (
 
   if (settings.media_server_type === MediaServerType.EMBY) {
     return Boolean(settings.emby_url && settings.emby_api_key)
+  }
+
+  if (settings.media_server_type === MediaServerType.SILO) {
+    return Boolean(settings.silo_url && settings.silo_api_key)
   }
 
   if (settings.media_server_type === MediaServerType.PLEX) {
@@ -65,6 +71,7 @@ export function useMediaServerType() {
     isPlex: mediaServerType === MediaServerType.PLEX,
     isJellyfin: mediaServerType === MediaServerType.JELLYFIN,
     isEmby: mediaServerType === MediaServerType.EMBY,
+    isSilo: mediaServerType === MediaServerType.SILO,
     isMediaServerTypeSelected: hasSelectedMediaServerType(settings),
     isSetupComplete,
     isNotConfigured: !isSetupComplete,

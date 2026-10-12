@@ -129,7 +129,7 @@ const overlayTemplateEditorRoute = createLazyRoute(
 
 const MovedToServices = () => {
   const { page = '' } = useParams()
-  const mediaServer = ['plex', 'jellyfin', 'emby'].includes(page)
+  const mediaServer = ['plex', 'jellyfin', 'emby', 'silo'].includes(page)
   return (
     <Navigate to={`/services/${mediaServer ? 'media-server' : page}`} replace />
   )

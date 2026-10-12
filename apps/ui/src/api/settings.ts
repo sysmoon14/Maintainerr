@@ -10,6 +10,7 @@ import {
   MediaServerType,
   MetadataProviderPreference,
   MetadataProviderSetting,
+  SiloSetting,
   SwitchMediaServerRequest,
   SwitchMediaServerResponse,
   TelemetryPing,
@@ -70,6 +71,10 @@ export interface ISettings {
   emby_api_key?: string
   emby_user_id?: string
   emby_server_name?: string
+  // Silo settings
+  silo_url?: string
+  silo_api_key?: string
+  silo_server_name?: string
   // Seerr integration
   seerr_api_key: string
   // Ombi integration
@@ -111,6 +116,9 @@ export interface JellyfinTestResult {
 
 // Emby shares the Jellyfin test-result shape; aliased for call-site clarity.
 export type EmbyTestResult = JellyfinTestResult
+
+// Silo needs no user selection: its key belongs to an administrator account.
+export type SiloTestResult = Omit<JellyfinTestResult, 'users'>
 
 // Login response shape for the Plex-style Emby credentials login flow.
 export interface EmbyLoginResult extends JellyfinTestResult {
@@ -1050,4 +1058,104 @@ export const downloadDatabase = async (
   setTimeout(() => {
     URL.revokeObjectURL(fileUrl)
   }, 0)
+}
+
+// --------------------------------------------------------------------------
+// Silo
+// --------------------------------------------------------------------------
+
+type UseSiloSettingsQueryKey = ['settings', 'silo']
+
+type UseSiloSettingsOptions = Omit<
+  UseQueryOptions<SiloSetting, Error, SiloSetting, UseSiloSettingsQueryKey>,
+  'queryKey' | 'queryFn'
+>
+
+export const useSiloSettings = (options?: UseSiloSettingsOptions) => {
+  return useQuery<SiloSetting, Error, SiloSetting, UseSiloSettingsQueryKey>({
+    queryKey: ['settings', 'silo'],
+    queryFn: async () => {
+      return await GetApiHandler<SiloSetting>(`/settings/silo`)
+    },
+    staleTime: 0,
+    ...options,
+  })
+}
+
+type UseTestSiloOptions = Omit<
+  UseMutationOptions<SiloTestResult, Error, SiloSetting>,
+  'mutationFn' | 'mutationKey'
+>
+
+export const useTestSilo = (options?: UseTestSiloOptions) => {
+  return useMutation<SiloTestResult, Error, SiloSetting>({
+    mutationKey: ['settings', 'testSilo'],
+    mutationFn: async (payload) => {
+      return await PostApiHandler<SiloTestResult>(
+        '/settings/silo/test',
+        payload,
+      )
+    },
+    ...options,
+  })
+}
+
+type UseSaveSiloSettingsOptions = Omit<
+  UseMutationOptions<BasicResponseDto, Error, SiloSetting>,
+  'mutationFn' | 'mutationKey' | 'onSuccess'
+>
+
+export const useSaveSiloSettings = (options?: UseSaveSiloSettingsOptions) => {
+  const queryClient = useQueryClient()
+
+  return useMutation<BasicResponseDto, Error, SiloSetting>({
+    mutationKey: ['settings', 'saveSilo'],
+    mutationFn: async (payload) => {
+      const response = await PostApiHandler<BasicResponseDto>(
+        '/settings/silo',
+        payload,
+      )
+
+      return assertSettingsMutationSucceeded(
+        response,
+        t`Silo settings could not be updated`,
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['settings'] satisfies UseSettingsQueryKey,
+      })
+    },
+    ...options,
+  })
+}
+
+type UseDeleteSiloSettingsOptions = Omit<
+  UseMutationOptions<BasicResponseDto, Error, void>,
+  'mutationFn' | 'mutationKey' | 'onSuccess'
+>
+
+export const useDeleteSiloSettings = (
+  options?: UseDeleteSiloSettingsOptions,
+) => {
+  const queryClient = useQueryClient()
+
+  return useMutation<BasicResponseDto, Error, void>({
+    mutationKey: ['settings', 'deleteSilo'],
+    mutationFn: async () => {
+      const response =
+        await DeleteApiHandler<BasicResponseDto>('/settings/silo')
+
+      return assertSettingsMutationSucceeded(
+        response,
+        t`Silo settings could not be updated`,
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['settings'] satisfies UseSettingsQueryKey,
+      })
+    },
+    ...options,
+  })
 }

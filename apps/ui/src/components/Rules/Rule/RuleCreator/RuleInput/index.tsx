@@ -111,6 +111,7 @@ const shouldFilterApplication = (
   isPlex: boolean,
   isJellyfin: boolean,
   isEmby: boolean = false,
+  isSilo: boolean = false,
 ): boolean => {
   // Filter out Radarr if no Radarr server is selected
   if (
@@ -133,22 +134,26 @@ const shouldFilterApplication = (
   ) {
     return true
   }
-  // Filter out Plex/Tautulli on non-Plex servers (Jellyfin, Emby).
+  // Filter out Plex/Tautulli on non-Plex servers (Jellyfin, Emby, Silo).
   if (
-    (isJellyfin || isEmby) &&
+    (isJellyfin || isEmby || isSilo) &&
     (appId === Application.PLEX || appId === Application.TAUTULLI)
   ) {
     return true
   }
-  // Filter out Jellyfin and its Streamystats companion on Plex/Emby.
+  // Filter out Jellyfin and its Streamystats companion on Plex/Emby/Silo.
   if (
-    (isPlex || isEmby) &&
+    (isPlex || isEmby || isSilo) &&
     (appId === Application.JELLYFIN || appId === Application.STREAMYSTATS)
   ) {
     return true
   }
-  // Filter out Emby on Plex/Jellyfin.
-  if ((isPlex || isJellyfin) && appId === Application.EMBY) {
+  // Filter out Emby on Plex/Jellyfin/Silo.
+  if ((isPlex || isJellyfin || isSilo) && appId === Application.EMBY) {
+    return true
+  }
+  // Filter out Silo on every other server.
+  if ((isPlex || isJellyfin || isEmby) && appId === Application.SILO) {
     return true
   }
   return false
@@ -346,7 +351,7 @@ const RuleInput = (props: IRuleInput) => {
   const [username, setUsername] = useState<string>(initialRuleState.username)
 
   const { data: constants, isLoading: constantsLoading } = useRuleConstants()
-  const { isPlex, isJellyfin, isEmby } = useMediaServerType()
+  const { isPlex, isJellyfin, isEmby, isSilo } = useMediaServerType()
 
   const availableApplications = useMemo(() => {
     return (
@@ -361,6 +366,7 @@ const RuleInput = (props: IRuleInput) => {
               isPlex,
               isJellyfin,
               isEmby,
+              isSilo,
             ) &&
             (app.mediaType === MediaType.BOTH ||
               props.mediaType === app.mediaType),
@@ -382,6 +388,7 @@ const RuleInput = (props: IRuleInput) => {
     isEmby,
     isJellyfin,
     isPlex,
+    isSilo,
     props.dataType,
     props.mediaType,
     props.radarrSettingsId,

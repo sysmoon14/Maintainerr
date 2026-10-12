@@ -5,6 +5,7 @@ import EmbySettings from '../Emby'
 import JellyfinSettings from '../Jellyfin'
 import MediaServerSelector from '../MediaServerSelector'
 import PlexSettings from '../Plex'
+import SiloSettings from '../Silo'
 import { ServiceStatus } from '../ServiceCard'
 import { useSettingsFeedback } from '../useSettingsFeedback'
 
@@ -32,6 +33,8 @@ const MediaServerSettings = () => {
             <PlexSettings />
           ) : type === MediaServerType.JELLYFIN ? (
             <JellyfinSettings />
+          ) : type === MediaServerType.SILO ? (
+            <SiloSettings />
           ) : (
             <EmbySettings />
           )}

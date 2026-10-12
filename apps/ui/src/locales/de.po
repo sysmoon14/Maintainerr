@@ -525,6 +525,7 @@ msgstr "API Schlüssel"
 #: src/components/Settings/Emby/index.tsx
 #: src/components/Settings/Jellyfin/index.tsx
 #: src/components/Settings/Metadata/index.tsx
+#: src/components/Settings/Silo/index.tsx
 msgid "API Key"
 msgstr "API Schlüssel"
 
@@ -1584,6 +1585,10 @@ msgstr "Verbindung zu Plex konnte nicht hergestellt werden. Überprüfe deine Pl
 msgid "Failed to connect to Seerr. Verify URL and API key."
 msgstr "Verbindung zu Seerr konnte nicht hergestellt werden. Überprüfe die URL und den API-Schlüssel."
 
+#: src/components/Settings/Silo/index.tsx
+msgid "Failed to connect to Silo. Verify URL and API key."
+msgstr ""
+
 #: src/components/Settings/Streamystats/index.tsx
 msgid "Failed to connect to Streamystats. Verify URL and that the service is running."
 msgstr "Verbindung zu Streamystats konnte nicht hergestellt werden. Überprüfe die URL und ob der Dienst ausgeführt wird."
@@ -1800,6 +1805,10 @@ msgstr "Füllung"
 #: src/components/OverlayEditor/PropertiesPanel.tsx
 msgid "Fill & Stroke"
 msgstr "Füllung & Kontur"
+
+#: src/components/Settings/Silo/index.tsx
+msgid "Find it here: Admin → API Keys. The key must belong to an administrator."
+msgstr ""
 
 #: src/components/Settings/Metadata/index.tsx
 msgid "Find it here: Dashboard → Account → API Keys"
@@ -3380,6 +3389,7 @@ msgstr "Speichere deine Einstellungen, bevor du testest."
 #: src/components/Settings/Notifications/NotificationAgentCard.tsx
 #: src/components/Settings/Plex/index.tsx
 #: src/components/Settings/Servarr/ServarrServerCard.tsx
+#: src/components/Settings/Silo/index.tsx
 msgid "Saved"
 msgstr "Gespeichert"
 
@@ -3698,6 +3708,23 @@ msgstr "Mit Emby anmelden"
 msgid "Signing in…"
 msgstr "Anmeldung…"
 
+#: src/components/Services/mediaServerOptions.ts
+msgid "Silo Media Server"
+msgstr ""
+
+#: src/components/Settings/Silo/index.tsx
+msgid "Silo settings - Maintainerr"
+msgstr ""
+
+#: src/api/settings.ts
+#: src/components/Settings/Silo/index.tsx
+msgid "Silo settings could not be updated"
+msgstr ""
+
+#: src/components/Settings/Silo/index.tsx
+msgid "Silo URL"
+msgstr ""
+
 #: src/components/Collection/CollectionItem/index.tsx
 #: src/components/OverlayEditor/PropertiesPanel.tsx
 #: src/components/Settings/Logs/index.tsx
@@ -3849,6 +3876,7 @@ msgstr "Erfolg"
 #: src/components/Settings/Jellyfin/index.tsx
 #: src/components/Settings/Metadata/index.tsx
 #: src/components/Settings/Notifications/NotificationAgentCard.tsx
+#: src/components/Settings/Silo/index.tsx
 msgid "Success!"
 msgstr "Erfolgreich!"
 

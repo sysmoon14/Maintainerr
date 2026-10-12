@@ -34,4 +34,10 @@ export const mediaServerOptions: {
     description: msg`Emby Media Server`,
     icon: serviceLogo('emby.png'),
   },
+  {
+    value: MediaServerType.SILO,
+    name: 'Silo',
+    description: msg`Silo Media Server`,
+    icon: serviceLogo('silo.svg'),
+  },
 ]

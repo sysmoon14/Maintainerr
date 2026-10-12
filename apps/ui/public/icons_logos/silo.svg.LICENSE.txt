@@ -1,0 +1,9 @@
+silo.svg
+
+A generic storage-cylinder glyph drawn for Maintainerr, distributed under the
+project's MIT licence. It is deliberately not the Silo logo: the Silo logo,
+wordmark and icons are reserved by Silo Media L.L.C. and are not licensed for
+redistribution (see https://github.com/Silo-Server/silo-server/blob/main/TRADEMARK.md).
+
+"Silo" is a trademark of Silo Media L.L.C. The name is used here only to
+identify the integration; nothing in this file implies endorsement.
