@@ -364,6 +364,35 @@ describe('SiloAdapterService', () => {
       });
     });
 
+    it('keeps the listing date and library a detail read leaves out', async () => {
+      // Silo's detail page carries no added_at, and no read names a library.
+      const detail = { ...movie, added_at: undefined };
+      silo
+        .on('GET', '/catalog', catalogPage([movie]))
+        .on('GET', `/catalog/items/${movie.content_id}`, detail);
+
+      await service.getLibraryContents('1');
+      const item = await service.getMetadata(movie.content_id);
+
+      expect(item?.addedAt).toEqual(new Date(movie.added_at!));
+      expect(item?.library).toEqual({ id: '1', title: 'Movies' });
+    });
+
+    it('dates an unlisted item by its oldest file', async () => {
+      const detail = { ...movie, added_at: undefined };
+      silo.on('GET', `/catalog/items/${movie.content_id}`, {
+        ...detail,
+        versions: [
+          { file_id: 'b', added_at: '2025-08-01T00:00:00.000Z' },
+          { file_id: 'a', added_at: '2025-07-01T00:00:00.000Z' },
+        ],
+      });
+
+      const item = await service.getMetadata(movie.content_id);
+
+      expect(item?.addedAt).toEqual(new Date('2025-07-01T00:00:00.000Z'));
+    });
+
     it('resolves each episode to its season with one read per series', async () => {
       withSeries().on(
         'GET',

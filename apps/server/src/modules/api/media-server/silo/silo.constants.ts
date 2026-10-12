@@ -27,6 +27,7 @@ export const SILO_BATCH_SIZE = {
 export const SILO_CACHE_KEYS = {
   METADATA: 'silo:metadata',
   CHILDREN: 'silo:children',
+  LISTED: 'silo:listed',
   SEASON_IDS: 'silo:season-ids',
   USERS: 'silo:users',
   LIBRARIES: 'silo:libraries',

@@ -72,6 +72,18 @@ import type {
  * it from one endpoint, so unlike the Jellyfin sweep an item with no entry is
  * a confirmed "never played" as of the snapshot, not an item the sweep missed.
  */
+interface ListedItem {
+  addedAt?: string;
+  library?: { id: string; title: string };
+}
+
+/** When the item's oldest file was added, for a read that names no date. */
+const oldestFile = (item: SiloCatalogItem): string | undefined =>
+  (item.versions ?? [])
+    .map((version) => version.added_at)
+    .filter((addedAt): addedAt is string => Boolean(addedAt))
+    .sort()[0];
+
 interface SiloWatchSnapshot {
   /** Completed plays, newest first */
   completed: Map<string, WatchRecord[]>;
@@ -644,7 +656,19 @@ export class SiloAdapterService implements IMediaServerService {
         data.type === 'episode' && data.series_id
           ? await this.getSeasonId(data.series_id, data.season_number)
           : undefined;
-      const mediaItem = SiloMapper.toMediaItem(data, { seasonId });
+      // A detail read names neither the item's added date nor its library;
+      // only listing cards carry those. Take them from the listing that
+      // surfaced the item, or the date from its oldest file.
+      const listed = this.cache.data.get<ListedItem>(
+        `${SILO_CACHE_KEYS.LISTED}:${itemId}`,
+      );
+      const mediaItem = SiloMapper.toMediaItem(
+        {
+          ...data,
+          added_at: data.added_at ?? listed?.addedAt ?? oldestFile(data),
+        },
+        { seasonId, library: listed?.library },
+      );
       this.cache.data.set(cacheKey, mediaItem, SILO_CACHE_TTL.METADATA);
       return mediaItem;
     } catch (error) {
@@ -1598,8 +1622,22 @@ export class SiloAdapterService implements IMediaServerService {
           ? await this.getSeasonId(row.series_id, row.season_number)
           : undefined;
       items.push(SiloMapper.toMediaItem(row, { seasonId, library }));
+      this.rememberListing(row, library);
     }
     return items;
+  }
+
+  /** Keep what a listing card knows that a detail read does not. */
+  private rememberListing(
+    row: SiloCatalogItem,
+    library?: { id: string; title: string },
+  ): void {
+    if (!row.added_at && !library) return;
+    this.cache.data.set<ListedItem>(
+      `${SILO_CACHE_KEYS.LISTED}:${row.content_id}`,
+      { addedAt: row.added_at, library },
+      SILO_CACHE_TTL.LIBRARY_SEASONS,
+    );
   }
 
   /** The content id of season `seasonNumber` of a series, from one cached read. */
@@ -1644,7 +1682,10 @@ export class SiloAdapterService implements IMediaServerService {
     const rows = await this.readList<SiloCatalogItem>(
       `/catalog/items/${encodeURIComponent(seasonId)}/episodes`,
     );
-    return rows.map((row) => SiloMapper.toMediaItem(row, { seasonId }));
+    return rows.map((row) => {
+      this.rememberListing(row);
+      return SiloMapper.toMediaItem(row, { seasonId });
+    });
   }
 
   private async readEpisodesOfSeasons(

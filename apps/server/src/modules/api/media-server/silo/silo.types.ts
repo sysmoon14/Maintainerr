@@ -79,6 +79,7 @@ export type SiloItemType =
 /** One file of an item, as GET /catalog/items/{id} lists it. */
 export interface SiloVersion {
   file_id: string;
+  added_at?: string;
   /** Seconds */
   duration?: number;
   /** Kilobits per second */
