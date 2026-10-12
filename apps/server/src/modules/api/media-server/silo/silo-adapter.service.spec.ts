@@ -252,7 +252,11 @@ describe('SiloAdapterService', () => {
         page([
           { id: '1', name: 'Movies', type: 'movies', enabled: true },
           { id: '2', name: 'Shows', type: 'series', enabled: true },
+          // Silo keeps the type as free text and matches it loosely.
+          { id: '5', name: 'Films', type: ' Movie ', enabled: true },
+          { id: '6', name: 'TV', type: 'TV', enabled: true },
           { id: '3', name: 'Books', type: 'ebooks', enabled: true },
+          { id: '7', name: 'Everything', type: 'mixed', enabled: true },
           { id: '4', name: 'Old', type: 'movies', enabled: false },
         ]),
       );
@@ -260,6 +264,8 @@ describe('SiloAdapterService', () => {
       await expect(service.getLibraries()).resolves.toEqual([
         { id: '1', title: 'Movies', type: 'movie' },
         { id: '2', title: 'Shows', type: 'show' },
+        { id: '5', title: 'Films', type: 'movie' },
+        { id: '6', title: 'TV', type: 'show' },
       ]);
     });
   });

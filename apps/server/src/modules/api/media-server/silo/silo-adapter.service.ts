@@ -44,7 +44,6 @@ import {
   SILO_BATCH_SIZE,
   SILO_CACHE_KEYS,
   SILO_CACHE_TTL,
-  SILO_LIBRARY_TYPES,
   SILO_SERVER_NAME,
   SILO_WATCH_SNAPSHOT_KEY,
 } from './silo.constants';
@@ -355,11 +354,24 @@ export class SiloAdapterService implements IMediaServerService {
       );
       if (cached) return cached;
 
-      const libraries = (await this.readAllPages<SiloLibrary>('/libraries'))
-        .filter(
-          (library) => library.enabled && SILO_LIBRARY_TYPES[library.type],
-        )
-        .map(SiloMapper.toMediaLibrary);
+      const all = await this.readAllPages<SiloLibrary>('/libraries');
+      const usable = all.filter(
+        (library) =>
+          library.enabled &&
+          SiloMapper.toLibraryType(library.type) !== undefined,
+      );
+      const skipped = all.filter((library) => !usable.includes(library));
+      if (skipped.length > 0) {
+        this.logger.debug(
+          `Silo libraries Maintainerr cannot manage: ${skipped
+            .map(
+              (library) =>
+                `${library.name} (${library.type}${library.enabled ? '' : ', disabled'})`,
+            )
+            .join(', ')}`,
+        );
+      }
+      const libraries = usable.map(SiloMapper.toMediaLibrary);
 
       this.cache.data.set(
         SILO_CACHE_KEYS.LIBRARIES,

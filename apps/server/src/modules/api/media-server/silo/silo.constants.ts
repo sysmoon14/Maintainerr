@@ -40,11 +40,18 @@ export const SILO_CACHE_KEYS = {
 // single endpoint, so it is not split per library like the Jellyfin sweep.
 export const SILO_WATCH_SNAPSHOT_KEY = 'silo:watch-snapshot';
 
-// The library kinds Maintainerr can manage. Silo also serves mixed, audiobook,
-// ebook, podcast and manga libraries, none of which a rule group can target.
-export const SILO_LIBRARY_TYPES: Record<string, 'movie' | 'show'> = {
-  movies: 'movie',
-  series: 'show',
-};
+// The library kinds Maintainerr can manage, keyed by Silo's library type.
+// Silo stores the type as free text ("movies", "TV", " Movies ") and matches
+// it trimmed and lowercased against these spellings (internal/librarykind).
+// Mixed, audiobook, ebook, podcast and manga libraries have no Maintainerr
+// equivalent and are left out.
+export const SILO_LIBRARY_TYPES = new Map<string, 'movie' | 'show'>([
+  ['movie', 'movie'],
+  ['movies', 'movie'],
+  ['series', 'show'],
+  ['tv', 'show'],
+  ['show', 'show'],
+  ['tvshows', 'show'],
+]);
 
 export const SILO_SERVER_NAME = 'Silo';

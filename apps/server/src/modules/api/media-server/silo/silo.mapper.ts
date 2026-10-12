@@ -60,11 +60,16 @@ export class SiloMapper {
     }
   }
 
+  /** The Maintainerr library type of a Silo library, if it has one. */
+  static toLibraryType(type: string): 'movie' | 'show' | undefined {
+    return SILO_LIBRARY_TYPES.get((type ?? '').trim().toLowerCase());
+  }
+
   static toMediaLibrary(library: SiloLibrary): MediaLibrary {
     return {
       id: library.id,
       title: library.name,
-      type: SILO_LIBRARY_TYPES[library.type] ?? 'movie',
+      type: SiloMapper.toLibraryType(library.type) ?? 'movie',
     };
   }
 
