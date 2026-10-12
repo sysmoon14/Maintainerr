@@ -24,6 +24,7 @@ import { Exclusion } from './entities/exclusion.entities';
 import { RuleGroup } from './entities/rule-group.entities';
 import { Rules } from './entities/rules.entities';
 import { EmbyGetterService } from './getter/emby-getter.service';
+import { SiloGetterService } from './getter/silo-getter.service';
 import { ValueGetterService } from './getter/getter.service';
 import { JellyfinGetterService } from './getter/jellyfin-getter.service';
 import { MetadataRuleValueService } from './getter/metadata-rule-value.service';
@@ -89,6 +90,7 @@ import { RuleMaintenanceService } from './tasks/rule-maintenance.service';
     PlexGetterService,
     JellyfinGetterService,
     EmbyGetterService,
+    SiloGetterService,
     MetadataRuleValueService,
     RadarrGetterService,
     SonarrGetterService,

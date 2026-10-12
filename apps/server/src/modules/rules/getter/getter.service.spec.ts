@@ -12,6 +12,7 @@ import { EmbyGetterService } from './emby-getter.service';
 import { ValueGetterService } from './getter.service';
 import { JellyfinGetterService } from './jellyfin-getter.service';
 import { PlexGetterService } from './plex-getter.service';
+import { SiloGetterService } from './silo-getter.service';
 
 const item: MediaItem = {
   id: 'item-1',
@@ -30,6 +31,7 @@ describe('ValueGetterService', () => {
   let plexGetter: Mocked<PlexGetterService>;
   let jellyfinGetter: Mocked<JellyfinGetterService>;
   let embyGetter: Mocked<EmbyGetterService>;
+  let siloGetter: Mocked<SiloGetterService>;
 
   beforeEach(async () => {
     const { unit, unitRef } =
@@ -40,12 +42,14 @@ describe('ValueGetterService', () => {
     plexGetter = unitRef.get(PlexGetterService);
     jellyfinGetter = unitRef.get(JellyfinGetterService);
     embyGetter = unitRef.get(EmbyGetterService);
+    siloGetter = unitRef.get(SiloGetterService);
   });
 
   it.each([
     MediaServerType.PLEX,
     MediaServerType.JELLYFIN,
     MediaServerType.EMBY,
+    MediaServerType.SILO,
   ])(
     'passes the run cache to the %s media-server getter',
     async (serverType) => {
@@ -56,7 +60,9 @@ describe('ValueGetterService', () => {
           ? plexGetter.get
           : serverType === MediaServerType.JELLYFIN
             ? jellyfinGetter.get
-            : embyGetter.get;
+            : serverType === MediaServerType.EMBY
+              ? embyGetter.get
+              : siloGetter.get;
       mediaServerFactory.getConfiguredServerType.mockResolvedValue(serverType);
       get.mockResolvedValue([] as RuleValueType);
 

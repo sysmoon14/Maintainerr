@@ -1950,5 +1950,34 @@ export class RuleConstants {
         props: jellyfinApp.props,
       });
     }
+
+    // Silo reuses the Jellyfin property ids and names for the same reason, so
+    // a rule moves between Jellyfin, Emby and Silo unchanged. It lists only the
+    // properties Silo can answer: it has no per-profile ratings, favourites,
+    // playlists or tags an administrator can read.
+    if (
+      jellyfinApp &&
+      !this.applications.some((a) => a.id === Application.SILO)
+    ) {
+      this.applications.push({
+        id: Application.SILO,
+        name: 'Silo',
+        mediaType: MediaType.BOTH,
+        props: jellyfinApp.props.filter(
+          (prop) => !SILO_UNSUPPORTED_PROPERTIES.has(prop.name),
+        ),
+      });
+    }
   }
 }
+
+/** Jellyfin properties Silo has no data for. */
+const SILO_UNSUPPORTED_PROPERTIES = new Set([
+  'rating_user',
+  'labels',
+  'playlists',
+  'playlist_names',
+  'favoritedBy',
+  'sw_favoritedBy',
+  'sw_favoritedBy_including_parent',
+]);

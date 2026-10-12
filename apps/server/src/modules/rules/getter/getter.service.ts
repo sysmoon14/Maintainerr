@@ -16,6 +16,7 @@ import { OmbiGetterService } from './ombi-getter.service';
 import { PlexGetterService } from './plex-getter.service';
 import { RadarrGetterService } from './radarr-getter.service';
 import { SeerrGetterService } from './seerr-getter.service';
+import { SiloGetterService } from './silo-getter.service';
 import { SonarrGetterService } from './sonarr-getter.service';
 import { SportarrGetterService } from './sportarr-getter.service';
 import { StreamystatsGetterService } from './streamystats-getter.service';
@@ -36,6 +37,7 @@ export class ValueGetterService {
     private readonly tracearrGetter: TracearrGetterService,
     private readonly jellyfinGetter: JellyfinGetterService,
     private readonly embyGetter: EmbyGetterService,
+    private readonly siloGetter: SiloGetterService,
     private readonly mediaServerFactory: MediaServerFactory,
   ) {}
 
@@ -57,13 +59,14 @@ export class ValueGetterService {
     arrLookupCache?: ArrLookupCache,
   ): Promise<RuleValueType> {
     switch (val1) {
-      // Route Plex/Jellyfin/Emby Application IDs to the configured media
+      // Route Plex/Jellyfin/Emby/Silo Application IDs to the configured media
       // server's getter. This handles community rules that reference the
       // "wrong" server type - e.g. a rule authored with Application.JELLYFIN
       // can still evaluate against a configured Emby server.
       case Application.PLEX:
       case Application.JELLYFIN:
-      case Application.EMBY: {
+      case Application.EMBY:
+      case Application.SILO: {
         const serverType =
           await this.mediaServerFactory.getConfiguredServerType();
 
@@ -74,7 +77,9 @@ export class ValueGetterService {
               ? this.plexGetter
               : serverType === MediaServerType.EMBY
                 ? this.embyGetter
-                : null;
+                : serverType === MediaServerType.SILO
+                  ? this.siloGetter
+                  : null;
 
         return (
           getter?.get(val2, libItem, dataType, ruleGroup, arrLookupCache) ??

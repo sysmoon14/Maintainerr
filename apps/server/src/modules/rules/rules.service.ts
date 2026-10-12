@@ -2585,6 +2585,12 @@ export class RulesService {
           this.logger.log(
             `Flushed Emby cache because a rule in the group required it`,
           );
+        } else if (serverType === MediaServerType.SILO) {
+          cacheManager.getCache('silo').flush();
+          cacheManager.getCache('silowatchhistory').flush();
+          this.logger.log(
+            `Flushed Silo cache because a rule in the group required it`,
+          );
         }
       }
 
