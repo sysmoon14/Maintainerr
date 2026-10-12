@@ -1246,6 +1246,27 @@ export class SiloAdapterService implements IMediaServerService {
     }
   }
 
+  /**
+   * The content ids of a manual collection's members, without reading each
+   * member's metadata. Throws for a smart collection, whose members cannot
+   * be listed, like getCollectionChildren.
+   */
+  async getCollectionMemberIds(collectionId: string): Promise<string[]> {
+    if (!this.http) {
+      throw new Error('Silo not initialized');
+    }
+    const collection = await this.getCollection(collectionId, true);
+    if (collection?.smart) {
+      throw new Error(
+        `Silo collection ${collectionId} is a smart collection, whose members cannot be listed`,
+      );
+    }
+    const members = await this.readAllPages<SiloAdminCollectionItem>(
+      `/admin/collections/${encodeURIComponent(collectionId)}/items`,
+    );
+    return members.map((member) => member.media_item_id);
+  }
+
   async addToCollection(collectionId: string, itemId: string): Promise<void> {
     const { refused, unknown } = await this.addBatchToCollection(collectionId, [
       itemId,

@@ -149,23 +149,24 @@ describe('SiloGetterService', () => {
     ).resolves.toEqual(new Date('2024-03-01'));
   });
 
-  it('names a collection holding the item once per rule group exclusions', async () => {
+  it('counts the manual collections holding the item, skipping smart ones it cannot list', async () => {
     silo.getMetadata.mockResolvedValue(createItem());
     silo.getCollections.mockResolvedValue([
       { id: 'c1', title: 'Leaving Soon ', childCount: 1 },
       { id: 'c2', title: 'Other', childCount: 1 },
+      { id: 'c3', title: 'Recently Added', childCount: 9, smart: true },
     ]);
-    silo.getCollectionChildren.mockImplementation(async (id) =>
-      id === 'c1' ? [createItem()] : [createItem({ id: 'movie-tmdb-2' })],
-    );
+    silo.getCollectionMemberIds.mockImplementation(async (id) => {
+      if (id === 'c3') throw new Error('smart collection');
+      return id === 'c1' ? ['movie-tmdb-1'] : ['movie-tmdb-2'];
+    });
+    const ruleGroup = createRuleGroupDto({ libraryId: '1' });
 
     await expect(
-      getter.get(
-        propId('collection_names'),
-        createItem(),
-        'movie',
-        createRuleGroupDto({ libraryId: '1' }),
-      ),
+      getter.get(propId('collection_names'), createItem(), 'movie', ruleGroup),
     ).resolves.toEqual(['Leaving Soon']);
+    await expect(
+      getter.get(propId('collections'), createItem(), 'movie', ruleGroup),
+    ).resolves.toBe(1);
   });
 });

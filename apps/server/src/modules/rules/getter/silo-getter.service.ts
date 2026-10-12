@@ -650,30 +650,53 @@ export class SiloGetterService {
   }
 
   /**
-   * Titles of the library's collections holding any of `itemIds`. The raw
-   * list is cached per item set, before exclusion filtering, so different
-   * rule groups can apply their own exclusions to it.
+   * The library's manual collections with their member ids, read once per
+   * rule run (cacheManager.flushAll() clears the cache at the start of every
+   * run) rather than once per evaluated item.
+   *
+   * Smart collections are left out: Silo derives their members from a saved
+   * query and cannot list them. The Plex getter's `collections` property
+   * likewise counts manual collections only.
    */
+  private async getManualCollections(
+    libraryId: string,
+  ): Promise<Array<{ id: string; title: string; memberIds: Set<string> }>> {
+    const cacheKey = `silo:rule-collections:${libraryId}`;
+    const cached =
+      this.cache.data.get<
+        Array<{ id: string; title: string; memberIds: string[] }>
+      >(cacheKey);
+    const collections =
+      cached ??
+      (await Promise.all(
+        (await this.siloAdapter.getCollections(libraryId))
+          .filter((collection) => !collection.smart)
+          .map(async (collection) => ({
+            id: collection.id,
+            title: collection.title.trim(),
+            memberIds: await this.siloAdapter.getCollectionMemberIds(
+              collection.id,
+            ),
+          })),
+      ));
+    if (!cached) this.cache.data.set(cacheKey, collections, 600);
+
+    return collections.map((collection) => ({
+      ...collection,
+      memberIds: new Set(collection.memberIds),
+    }));
+  }
+
+  /** Titles of the library's collections holding any of `itemIds`. */
   private async getCollectionsHolding(
     itemIds: string[],
     libraryId: string,
   ): Promise<string[]> {
-    const cacheKey = `silo:item:collections:${libraryId}:${itemIds.join(',')}`;
-    const cached = this.cache.data.get<string[]>(cacheKey);
-    if (cached) return cached;
-
-    const names: string[] = [];
-    for (const collection of await this.siloAdapter.getCollections(libraryId)) {
-      const children = await this.siloAdapter.getCollectionChildren(
-        collection.id,
-      );
-      if (children.some((child) => itemIds.includes(child.id))) {
-        names.push(collection.title.trim());
-      }
-    }
-
-    this.cache.data.set(cacheKey, names, 600);
-    return names;
+    return (await this.getManualCollections(libraryId))
+      .filter((collection) =>
+        itemIds.some((itemId) => collection.memberIds.has(itemId)),
+      )
+      .map((collection) => collection.title);
   }
 
   /**
@@ -685,7 +708,7 @@ export class SiloGetterService {
     libraryId: string,
     ruleGroup?: RuleGroupDto,
   ): Promise<Date | null> {
-    const collections = await this.siloAdapter.getCollections(libraryId);
+    const collections = await this.getManualCollections(libraryId);
     const included = new Set(
       filterRuleCollectionNames(
         collections.map((collection) => collection.title),
@@ -695,16 +718,12 @@ export class SiloGetterService {
 
     let latest: Date | null = null;
     for (const collection of collections) {
-      if (!included.has(collection.title.trim())) continue;
+      if (!included.has(collection.title)) continue;
+      if (!collection.memberIds.has(itemId)) continue;
 
-      const children = await this.siloAdapter.getCollectionChildren(
-        collection.id,
-      );
-      if (!children.some((child) => child.id === itemId)) continue;
-
-      for (const child of children) {
+      for (const memberId of collection.memberIds) {
         const viewedAt = this.newestWatch(
-          await this.siloAdapter.getWatchHistory(child.id),
+          await this.siloAdapter.getWatchHistory(memberId),
         );
         if (viewedAt && (!latest || viewedAt > latest)) {
           latest = viewedAt;
