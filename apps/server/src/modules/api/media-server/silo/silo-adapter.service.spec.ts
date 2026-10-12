@@ -1,6 +1,7 @@
 import { AxiosError } from 'axios';
 import cacheManager from '../../lib/cache';
 import { SiloAdapterService } from './silo-adapter.service';
+import { SiloMapper } from './silo.mapper';
 import type { SiloCatalogItem, SiloPlaybackHistoryEntry } from './silo.types';
 
 // testConnection builds its own client from the URL and key it is handed, so
@@ -20,7 +21,18 @@ type Handler = (params: Params, body?: unknown) => unknown;
 const declaredQuery = (path: string): string[] => {
   const paged = ['limit', 'cursor'];
   if (path === '/catalog') {
-    return ['library_id', 'type', 'q', 'sort', 'limit', 'cursor', 'seek'];
+    return [
+      'source',
+      'collection_id',
+      'library_id',
+      'type',
+      'q',
+      'sort',
+      'skip_total',
+      'limit',
+      'cursor',
+      'seek',
+    ];
   }
   if (path === '/admin/users') return [...paged, 'identity'];
   if (path === '/admin/sessions') return [...paged, 'user_id'];
@@ -710,17 +722,87 @@ describe('SiloAdapterService', () => {
       await expect(service.getCollectionChildren('c1')).rejects.toThrow();
     });
 
-    it('refuses to list a smart collection, whose manual membership is always empty', async () => {
+    it.each(['smart', 'trakt'])(
+      'refuses to reconcile a %s collection, whose items Silo will not list',
+      async (collectionType) => {
+        silo
+          .on('GET', '/admin/collections/c1', {
+            ...collection,
+            collection_type: collectionType,
+          })
+          .on('GET', '/admin/collections/c1/items', () => {
+            throw responseError(409);
+          });
+
+        await expect(service.getCollectionChildren('c1')).rejects.toThrow(
+          `${collectionType} collection`,
+        );
+      },
+    );
+
+    it('treats only a smart collection as smart', () => {
+      expect(
+        ['manual', 'trakt', 'mdblist', ' Smart '].map(
+          (collectionType) =>
+            SiloMapper.toMediaCollection({
+              ...collection,
+              collection_type: collectionType,
+            }).smart,
+        ),
+      ).toEqual([false, false, false, true]);
+    });
+
+    it("lists a manual collection's member ids from the admin read", async () => {
+      silo.on('GET', '/admin/collections/c1', collection).on(
+        'GET',
+        '/admin/collections/c1/items',
+        page([
+          {
+            collection_id: 'c1',
+            media_item_id: movie.content_id,
+            position: 0,
+          },
+        ]),
+      );
+
+      await expect(service.getCollectionMemberIds('c1')).resolves.toEqual([
+        movie.content_id,
+      ]);
+      expect(silo.callsTo('GET', '/catalog')).toHaveLength(0);
+    });
+
+    it("lists an imported collection's member ids from the catalog", async () => {
       silo
         .on('GET', '/admin/collections/c1', {
           ...collection,
-          collection_type: 'query',
+          collection_type: 'trakt',
         })
-        .on('GET', '/admin/collections/c1/items', page([]));
+        .on('GET', '/admin/collections/c1/items', () => {
+          throw responseError(409);
+        })
+        .on('GET', '/catalog', (params: Params) =>
+          params?.source === 'library_collection' &&
+          params?.collection_id === 'c1'
+            ? catalogPage([movie])
+            : catalogPage([]),
+        );
 
-      await expect(service.getCollectionChildren('c1')).rejects.toThrow(
-        'smart collection',
-      );
+      await expect(service.getCollectionMemberIds('c1')).resolves.toEqual([
+        movie.content_id,
+      ]);
+    });
+
+    it('re-throws a failed imported membership read instead of answering empty', async () => {
+      silo
+        .on('GET', '/admin/collections/c1', {
+          ...collection,
+          collection_type: 'mdblist',
+        })
+        .on('GET', '/catalog', () => {
+          throw responseError(404);
+        });
+
+      await expect(service.getCollectionMemberIds('c1')).rejects.toThrow();
     });
 
     it('leaves a collection based in another library untouched on cleanup', async () => {

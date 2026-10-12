@@ -183,8 +183,9 @@ export class SiloMapper {
       updatedAt: collection.updated_at
         ? new Date(collection.updated_at)
         : undefined,
-      // Any other collection_type derives its members from a saved query.
-      smart: collection.collection_type !== 'manual',
+      // Only a smart collection is a live query. Imported types (trakt,
+      // mdblist, tmdb) store their members like a manual one does.
+      smart: collection.collection_type?.trim().toLowerCase() === 'smart',
       libraryId: collection.library_id || undefined,
     };
   }

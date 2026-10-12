@@ -1210,13 +1210,14 @@ export class SiloAdapterService implements IMediaServerService {
       throw new Error('Silo not initialized');
     }
     try {
-      // Only manual membership can be listed. A smart collection derives its
-      // members from a saved query and lists none here, which would read as
-      // "every member was removed by hand", so its children are unknown.
-      const collection = await this.getCollection(collectionId, true);
-      if (collection?.smart) {
+      // Silo lists membership here for manual collections only and answers
+      // 409 for every other type. Maintainerr reconciles its own (manual)
+      // collections through this read, so anything else is refused rather
+      // than guessed at.
+      const collectionType = await this.readCollectionType(collectionId);
+      if (collectionType !== 'manual') {
         throw new Error(
-          `Silo collection ${collectionId} is a smart collection, whose members cannot be listed`,
+          `Silo collection ${collectionId} is a ${collectionType || 'non-manual'} collection, whose membership Maintainerr does not manage`,
         );
       }
 
@@ -1247,24 +1248,40 @@ export class SiloAdapterService implements IMediaServerService {
   }
 
   /**
-   * The content ids of a manual collection's members, without reading each
-   * member's metadata. Throws for a smart collection, whose members cannot
-   * be listed, like getCollectionChildren.
+   * The content ids of a collection's members, of any type, without reading
+   * each member's metadata. A failed read throws rather than answering empty.
    */
   async getCollectionMemberIds(collectionId: string): Promise<string[]> {
     if (!this.http) {
       throw new Error('Silo not initialized');
     }
-    const collection = await this.getCollection(collectionId, true);
-    if (collection?.smart) {
-      throw new Error(
-        `Silo collection ${collectionId} is a smart collection, whose members cannot be listed`,
+    const collectionType = await this.readCollectionType(collectionId);
+    if (collectionType === 'manual') {
+      // The admin read lists a manual collection's members whether or not
+      // the collection is visible to profiles.
+      const members = await this.readAllPages<SiloAdminCollectionItem>(
+        `/admin/collections/${encodeURIComponent(collectionId)}/items`,
       );
+      return members.map((member) => member.media_item_id);
     }
-    const members = await this.readAllPages<SiloAdminCollectionItem>(
-      `/admin/collections/${encodeURIComponent(collectionId)}/items`,
+
+    // Imported (Trakt, MDBList, TMDB) and smart collections are refused by
+    // the admin items read. The catalog lists the members of every type -
+    // stored items for an import, the live query result for a smart one.
+    const members = await this.readAllPages<SiloCatalogItem>('/catalog', {
+      source: 'library_collection',
+      collection_id: collectionId,
+      skip_total: 'true',
+    });
+    return members.map((member) => member.content_id);
+  }
+
+  /** A collection's type as Silo stores it, trimmed and lowercased. */
+  private async readCollectionType(collectionId: string): Promise<string> {
+    const { data } = await this.http!.get<SiloAdminCollection>(
+      `/admin/collections/${encodeURIComponent(collectionId)}`,
     );
-    return members.map((member) => member.media_item_id);
+    return (data.collection_type ?? '').trim().toLowerCase();
   }
 
   async addToCollection(collectionId: string, itemId: string): Promise<void> {

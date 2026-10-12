@@ -650,15 +650,16 @@ export class SiloGetterService {
   }
 
   /**
-   * The library's manual collections with their member ids, read once per
-   * rule run (cacheManager.flushAll() clears the cache at the start of every
-   * run) rather than once per evaluated item.
+   * The library's collections with their member ids, read once per rule run
+   * (cacheManager.flushAll() clears the cache at the start of every run)
+   * rather than once per evaluated item. Manual and imported (Trakt, MDBList,
+   * TMDB) collections count.
    *
-   * Smart collections are left out: Silo derives their members from a saved
-   * query and cannot list them. The Plex getter's `collections` property
-   * likewise counts manual collections only.
+   * Smart collections are left out: their members are a live query rather
+   * than a curated set, like the smart collections the Plex getter's
+   * `collections` property skips.
    */
-  private async getManualCollections(
+  private async getStoredCollections(
     libraryId: string,
   ): Promise<Array<{ id: string; title: string; memberIds: Set<string> }>> {
     const cacheKey = `silo:rule-collections:${libraryId}`;
@@ -692,7 +693,7 @@ export class SiloGetterService {
     itemIds: string[],
     libraryId: string,
   ): Promise<string[]> {
-    return (await this.getManualCollections(libraryId))
+    return (await this.getStoredCollections(libraryId))
       .filter((collection) =>
         itemIds.some((itemId) => collection.memberIds.has(itemId)),
       )
@@ -708,7 +709,7 @@ export class SiloGetterService {
     libraryId: string,
     ruleGroup?: RuleGroupDto,
   ): Promise<Date | null> {
-    const collections = await this.getManualCollections(libraryId);
+    const collections = await this.getStoredCollections(libraryId);
     const included = new Set(
       filterRuleCollectionNames(
         collections.map((collection) => collection.title),
