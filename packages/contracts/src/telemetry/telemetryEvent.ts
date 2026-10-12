@@ -43,7 +43,7 @@ export interface TelemetryPing {
   nodeMajor: number
   arch: string
   platform: string
-  mediaServer: 'plex' | 'jellyfin' | 'emby' | 'none'
+  mediaServer: 'plex' | 'jellyfin' | 'emby' | 'silo' | 'none'
 
   /**
    * Rich sample. Included in 1 week out of TELEMETRY_SAMPLE_DIVISOR, and

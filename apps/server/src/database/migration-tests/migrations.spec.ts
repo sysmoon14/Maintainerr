@@ -188,6 +188,11 @@ describe('database migrations', () => {
       expect(settings.ombi_url).toMatchObject(nullableVarchar);
       expect(settings.ombi_api_key).toMatchObject(nullableVarchar);
       expect(collection.forceOmbi).toMatchObject(bool);
+
+      // AddSiloSupport: the Silo connection.
+      expect(settings.silo_url).toMatchObject(nullableVarchar);
+      expect(settings.silo_api_key).toMatchObject(nullableVarchar);
+      expect(settings.silo_server_name).toMatchObject(nullableVarchar);
     } finally {
       await ds.destroy();
     }
@@ -200,7 +205,7 @@ describe('database migrations', () => {
     // emits a full create-temporary-table / copy / drop / rename rebuild for the
     // changed tables. A hand-written ALTER shortcut lacks it - this is the
     // cheapest signal the migration was generated rather than authored. The
-    // newest migration drops settings columns, so it rebuilds that table.
+    // newest migration adds settings columns, so it rebuilds that table.
     expect(src).toContain('CREATE TABLE "temporary_settings"');
   });
 
@@ -214,10 +219,10 @@ describe('database migrations', () => {
     try {
       await ds.runMigrations();
       await ds.query(
-        `INSERT INTO settings ("id", "applicationTitle", "applicationUrl", "locale", "metadata_provider_preference", "seerr_url", "seerr_api_key", "radarr_tag_exclusions", "radarr_exclusion_tag") VALUES (1, 'Media Manager', 'http://localhost:6246', 'en', 'tmdb_primary', 'http://seerr.local', 'seerr-key', 1, 'keep')`,
+        `INSERT INTO settings ("id", "applicationTitle", "applicationUrl", "locale", "metadata_provider_preference", "media_server_type", "seerr_url", "seerr_api_key", "emby_url", "emby_api_key") VALUES (1, 'Media Manager', 'http://localhost:6246', 'en', 'tmdb_primary', 'emby', 'http://seerr.local', 'seerr-key', 'http://emby.local:8096', 'emby-key')`,
       );
       await ds.query(
-        `INSERT INTO radarr_settings ("id", "serverName") VALUES (1, 'HD')`,
+        `INSERT INTO radarr_settings ("id", "serverName", "tagExclusions", "exclusionTag") VALUES (1, 'HD', 1, 'keep')`,
       );
       await ds.query(
         `INSERT INTO collection ("libraryId", "title", "type", "mediaServerType", "radarrSettingsId") VALUES ('1', 'Sample Collection', 'movie', 'plex', 1)`,
@@ -234,10 +239,13 @@ describe('database migrations', () => {
       const [settings] = await ds.query(`SELECT * FROM settings`);
       expect(settings).toMatchObject({
         applicationTitle: 'Media Manager',
+        media_server_type: 'emby',
         seerr_url: 'http://seerr.local',
         seerr_api_key: 'seerr-key',
+        emby_url: 'http://emby.local:8096',
+        emby_api_key: 'emby-key',
+        silo_url: null,
       });
-      // The server takes over the tag settings its service had.
       const [server] = await ds.query(`SELECT * FROM radarr_settings`);
       expect(server).toMatchObject({ tagExclusions: 1, exclusionTag: 'keep' });
       const [collection] = await ds.query(`SELECT * FROM collection`);
@@ -258,18 +266,14 @@ describe('database migrations', () => {
     const ds = await makeDS(all.map((m) => m.cls)).initialize();
     try {
       await ds.runMigrations();
-      expect(
-        byName(await columns(ds, 'settings')).radarr_tag_exclusions,
-      ).toBeUndefined();
+      expect(byName(await columns(ds, 'settings')).silo_url).toBeDefined();
       await ds.query(
         `INSERT INTO settings ("id", "applicationTitle", "applicationUrl", "locale", "metadata_provider_preference") VALUES (1, 'Fresh', 'http://localhost:6246', 'en', 'tmdb_primary')`,
       );
 
       await ds.undoLastMigration();
 
-      expect(
-        byName(await columns(ds, 'settings')).radarr_tag_exclusions,
-      ).toBeDefined();
+      expect(byName(await columns(ds, 'settings')).silo_url).toBeUndefined();
       const [row] = await ds.query(`SELECT "applicationTitle" FROM settings`);
       expect(row.applicationTitle).toBe('Fresh');
       const [{ c }] = await ds.query(`SELECT COUNT(*) AS c FROM migrations`);

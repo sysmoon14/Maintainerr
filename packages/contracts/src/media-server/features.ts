@@ -55,6 +55,25 @@ export const MEDIA_SERVER_FEATURES: Record<
     //   "push an explicit ordered list of item IDs" contract isn't satisfiable.
     // - TRUSTWORTHY_EMPTY_COLLECTION: same .NET BoxSet sync delay as Jellyfin.
   ]),
+  [MediaServerType.SILO]: new Set([
+    // GET /api/v2/admin/playback-history pages every account's and profile's
+    // finalized plays from one endpoint.
+    MediaServerFeature.CENTRAL_WATCH_HISTORY,
+    // Manual collection membership is read from the database inside the same
+    // transaction that writes it, so an empty read is a real empty.
+    MediaServerFeature.TRUSTWORTHY_EMPTY_COLLECTION,
+    // Not supported (yet):
+    // - COLLECTION_VISIBILITY: no Plex-style home/recommended pinning.
+    // - WATCHLIST: per-profile only, no administrator read.
+    // - LABELS: Silo has no item tags.
+    // - PLAYLISTS: no playlist API.
+    // - COLLECTION_POSTER / COLLECTION_SORT: Silo has both, left for a
+    //   follow-up so the first version stays small.
+    // - CROSS_LIBRARY_COLLECTIONS: Maintainerr creates each collection in the
+    //   rule group's library, and Silo only accepts members from a
+    //   collection's own libraries.
+    // - LIBRARY_STUDIO_SORT: no studio sort on catalog listings.
+  ]),
 }
 
 /**

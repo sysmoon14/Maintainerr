@@ -47,6 +47,7 @@ export enum Application {
   STREAMYSTATS = 8,
   TRACEARR = 9,
   OMBI = 10,
+  SILO = 11,
 }
 
 /**
@@ -64,6 +65,7 @@ export const ApplicationNames: Record<Application, string> = {
   [Application.STREAMYSTATS]: 'Streamystats',
   [Application.TRACEARR]: 'Tracearr',
   [Application.OMBI]: 'Ombi',
+  [Application.SILO]: 'Silo',
 }
 
 /**

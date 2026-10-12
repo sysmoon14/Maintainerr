@@ -47,6 +47,10 @@ export const settingsUpdateSchema = z.object({
   emby_user_id: z.string().trim().optional(),
   emby_server_name: z.string().trim().optional(),
 
+  silo_url: serviceUrlSchema.optional(),
+  silo_api_key: z.string().trim().optional(),
+  silo_server_name: z.string().trim().optional(),
+
   seerr_url: serviceUrlSchema.optional(),
   seerr_api_key: z.string().trim().optional(),
 

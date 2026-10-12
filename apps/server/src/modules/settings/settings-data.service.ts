@@ -86,6 +86,12 @@ export class SettingsDataService implements SettingDto {
 
   emby_server_name?: string;
 
+  silo_url?: string;
+
+  silo_api_key?: string;
+
+  silo_server_name?: string;
+
   // Seerr settings
   seerr_url: string;
 
@@ -173,6 +179,9 @@ export class SettingsDataService implements SettingDto {
       this.emby_api_key = settingsDb?.emby_api_key;
       this.emby_user_id = settingsDb?.emby_user_id;
       this.emby_server_name = settingsDb?.emby_server_name;
+      this.silo_url = settingsDb?.silo_url;
+      this.silo_api_key = settingsDb?.silo_api_key;
+      this.silo_server_name = settingsDb?.silo_server_name;
       this.seerr_url = settingsDb?.seerr_url;
       this.seerr_api_key = settingsDb?.seerr_api_key;
       this.ombi_url = settingsDb?.ombi_url;
@@ -222,6 +231,15 @@ export class SettingsDataService implements SettingDto {
           await this.settingsRepo.update(
             { id: this.id },
             { media_server_type: MediaServerType.EMBY },
+          );
+        } else if (this.silo_api_key) {
+          this.logger.log(
+            'Detected existing Silo configuration without media_server_type set. Setting to silo.',
+          );
+          this.media_server_type = MediaServerType.SILO;
+          await this.settingsRepo.update(
+            { id: this.id },
+            { media_server_type: MediaServerType.SILO },
           );
         } else if (this.plex_auth_token) {
           this.logger.log(
@@ -303,6 +321,7 @@ export class SettingsDataService implements SettingDto {
       plex_auth_token: maskSecret(settings.plex_auth_token),
       jellyfin_api_key: maskSecret(settings.jellyfin_api_key),
       emby_api_key: maskSecret(settings.emby_api_key),
+      silo_api_key: maskSecret(settings.silo_api_key),
       seerr_api_key: maskSecret(settings.seerr_api_key),
       ombi_api_key: maskSecret(settings.ombi_api_key),
       tmdb_api_key: maskSecret(settings.tmdb_api_key),
@@ -417,6 +436,10 @@ export class SettingsDataService implements SettingDto {
       } else if (this.media_server_type === MediaServerType.EMBY) {
         // Emby requires URL and API key (user ID is optional, can be auto-detected later)
         if (this.emby_url && this.emby_api_key) {
+          return true;
+        }
+      } else if (this.media_server_type === MediaServerType.SILO) {
+        if (this.silo_url && this.silo_api_key) {
           return true;
         }
       } else if (this.media_server_type === MediaServerType.PLEX) {

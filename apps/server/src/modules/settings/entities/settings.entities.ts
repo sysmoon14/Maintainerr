@@ -84,6 +84,16 @@ export class Settings implements SettingDto {
   @Column({ nullable: true })
   emby_server_name?: string;
 
+  // Silo settings
+  @Column({ nullable: true })
+  silo_url?: string;
+
+  @Column({ nullable: true })
+  silo_api_key?: string;
+
+  @Column({ nullable: true })
+  silo_server_name?: string;
+
   // Seerr integration
   @Column({ nullable: true })
   seerr_api_key: string;

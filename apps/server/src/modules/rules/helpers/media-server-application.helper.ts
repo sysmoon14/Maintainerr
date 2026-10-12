@@ -14,6 +14,7 @@ export const MEDIA_SERVER_TYPE_TO_APP: Record<MediaServerType, Application> = {
   [MediaServerType.PLEX]: Application.PLEX,
   [MediaServerType.JELLYFIN]: Application.JELLYFIN,
   [MediaServerType.EMBY]: Application.EMBY,
+  [MediaServerType.SILO]: Application.SILO,
 };
 
 /**

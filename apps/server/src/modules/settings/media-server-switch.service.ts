@@ -423,6 +423,10 @@ export class MediaServerSwitchService {
       updatedSettings.emby_api_key = null;
       updatedSettings.emby_user_id = null;
       updatedSettings.emby_server_name = null;
+    } else if (currentServerType === MediaServerType.SILO) {
+      updatedSettings.silo_url = null;
+      updatedSettings.silo_api_key = null;
+      updatedSettings.silo_server_name = null;
     }
 
     // The Tracearr instance survives a switch, but its selected server does
