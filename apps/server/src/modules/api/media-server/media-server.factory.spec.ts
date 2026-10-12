@@ -8,6 +8,7 @@ import { JellyfinAdapterService } from './jellyfin/jellyfin-adapter.service';
 import { MediaServerSwitchState } from './media-server-switch-state.service';
 import { MediaServerFactory } from './media-server.factory';
 import { PlexAdapterService } from './plex/plex-adapter.service';
+import { SiloAdapterService } from './silo/silo-adapter.service';
 
 describe('MediaServerFactory', () => {
   let factory: MediaServerFactory;
@@ -46,6 +47,13 @@ describe('MediaServerFactory', () => {
     loginWithCredentials: jest.fn(),
   } as unknown as jest.Mocked<EmbyAdapterService>;
 
+  const siloAdapter = {
+    isSetup: jest.fn(),
+    initialize: jest.fn(),
+    uninitialize: jest.fn(),
+    testConnection: jest.fn(),
+  } as unknown as jest.Mocked<SiloAdapterService>;
+
   const createSettings = (overrides: Partial<Settings> = {}): Settings =>
     Object.assign(new Settings(), {
       media_server_type: null,
@@ -57,6 +65,8 @@ describe('MediaServerFactory', () => {
       jellyfin_api_key: null,
       emby_url: null,
       emby_api_key: null,
+      silo_url: null,
+      silo_api_key: null,
       ...overrides,
     });
 
@@ -68,6 +78,7 @@ describe('MediaServerFactory', () => {
       plexAdapter,
       jellyfinAdapter,
       embyAdapter,
+      siloAdapter,
       logger,
     );
 
@@ -75,6 +86,7 @@ describe('MediaServerFactory', () => {
     plexAdapter.isSetup.mockReturnValue(true);
     jellyfinAdapter.isSetup.mockReturnValue(true);
     embyAdapter.isSetup.mockReturnValue(true);
+    siloAdapter.isSetup.mockReturnValue(true);
   });
 
   it('throws ServiceUnavailableException while switch is in progress', async () => {
@@ -159,18 +171,41 @@ describe('MediaServerFactory', () => {
     expect(service).toBe(plexAdapter);
   });
 
-  it('infers Jellyfin when only Jellyfin credentials exist and type is unset', async () => {
+  it.each([
+    {
+      expected: MediaServerType.JELLYFIN,
+      credentials: {
+        jellyfin_url: 'http://jellyfin.local:8096',
+        jellyfin_api_key: 'key',
+      },
+    },
+    {
+      expected: MediaServerType.SILO,
+      credentials: { silo_url: 'http://silo.local:8080', silo_api_key: 'key' },
+    },
+  ])(
+    'infers $expected when only its credentials exist and type is unset',
+    async ({ expected, credentials }) => {
+      settingsDataService.getSettings.mockResolvedValue(
+        createSettings({ media_server_type: null, ...credentials }),
+      );
+
+      await expect(factory.getConfiguredServerType()).resolves.toBe(expected);
+    },
+  );
+
+  it('infers nothing when more than one server has credentials and type is unset', async () => {
     settingsDataService.getSettings.mockResolvedValue(
       createSettings({
         media_server_type: null,
         jellyfin_url: 'http://jellyfin.local:8096',
         jellyfin_api_key: 'key',
+        silo_url: 'http://silo.local:8080',
+        silo_api_key: 'key',
       }),
     );
 
-    await expect(factory.getConfiguredServerType()).resolves.toBe(
-      MediaServerType.JELLYFIN,
-    );
+    await expect(factory.getConfiguredServerType()).resolves.toBeNull();
   });
 
   it('prefers explicit configured type over inferred mismatch', async () => {

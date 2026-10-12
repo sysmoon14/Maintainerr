@@ -26,6 +26,8 @@ import {
   seerrSettingSchema,
   SettingsUpdate,
   settingsUpdateSchema,
+  SiloSetting,
+  siloSettingSchema,
   SonarrSetting,
   sonarrSettingSchema,
   SportarrSetting,
@@ -767,6 +769,45 @@ export class SettingsController {
       payload.username,
       payload.password,
     );
+  }
+
+  // --------------------------------------------------------------------------
+  // Silo
+  // --------------------------------------------------------------------------
+
+  @Get('/silo')
+  async getSiloSetting(): Promise<SiloSetting | BasicResponseDto> {
+    const settings = await this.settingsOperationsService.getSettings();
+
+    if (!(settings instanceof Settings)) {
+      return settings;
+    }
+
+    return {
+      silo_url: settings.silo_url,
+      silo_api_key: settings.silo_api_key,
+    };
+  }
+
+  @Post('/silo/test')
+  testSilo(
+    @Body(new ZodValidationPipe(siloSettingSchema))
+    payload: SiloSetting,
+  ): Promise<BasicResponseDto> {
+    return this.settingsOperationsService.testSilo(payload);
+  }
+
+  @Post('/silo')
+  async saveSiloSettings(
+    @Body(new ZodValidationPipe(siloSettingSchema))
+    payload: SiloSetting,
+  ): Promise<BasicResponseDto> {
+    return await this.settingsOperationsService.saveSiloSettings(payload);
+  }
+
+  @Delete('/silo')
+  async removeSiloSettings(): Promise<BasicResponseDto> {
+    return await this.settingsOperationsService.removeSiloSettings();
   }
 
   @Delete('/sonarr/:id')

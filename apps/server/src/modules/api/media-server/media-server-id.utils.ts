@@ -73,6 +73,13 @@ export function isForeignServerId(
     return isLikelyJellyfinId(value);
   }
 
+  if (serverType === MediaServerType.SILO) {
+    // Silo content ids are kind-prefixed ("movie-tmdb-603"), but items from
+    // before that scheme kept numeric ids, which a Plex id cannot be told
+    // apart from. Only a Jellyfin id is.
+    return isLikelyJellyfinId(value);
+  }
+
   return false;
 }
 

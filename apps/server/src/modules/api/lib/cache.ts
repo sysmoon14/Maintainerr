@@ -17,6 +17,8 @@ type AvailableCacheIds =
   | 'jellyfin'
   | 'jellyfinwatchhistory'
   | 'emby'
+  | 'silo'
+  | 'silowatchhistory'
   | 'sportarrmetadata';
 
 type CacheType = AvailableCacheIds | 'radarr' | 'sonarr' | 'sportarr';
@@ -227,6 +229,21 @@ class CacheManager {
       },
     ),
     emby: new Cache('emby', 'Emby API', 'emby'),
+    silo: new Cache('silo', 'Silo API', 'silo'),
+    // One prefetched snapshot of the server-wide playback history, kept out of
+    // the key-count bound like jellyfinwatchhistory so it is never evicted
+    // part-way through a rule run. Unlike that one it is not persistent: Silo
+    // answers the whole history from one endpoint, so each run reads it fresh.
+    silowatchhistory: new Cache(
+      'silowatchhistory',
+      'Silo watch history',
+      'silowatchhistory',
+      {
+        stdTtl: 3600, // 1 hour
+        useClones: false,
+        maxKeys: 0,
+      },
+    ),
     // Artwork and descriptions for Sportarr leagues. Long-lived like the tmdb
     // and tvdb caches: a league's poster changes rarely and every card asks
     // for it. The Sportarr card on the metadata settings page clears it.

@@ -1,6 +1,7 @@
 import {
   BasicResponseDto,
   EmbySetting,
+  SiloSetting,
   JellyfinSetting,
   DownloadClientSetting,
   MediaServerType,
@@ -1016,6 +1017,130 @@ export class SettingsOperationsService {
     }
   }
 
+  // ==========================================================================
+  // Silo
+  // ==========================================================================
+
+  /**
+   * Test connection to a Silo server with an administrator API key.
+   */
+  public async testSilo(
+    settings: SiloSetting,
+    timeoutMs?: number,
+  ): Promise<BasicResponseDto & { serverName?: string; version?: string }> {
+    try {
+      const result = await this.mediaServerFactory.testSiloConnection(
+        settings.silo_url,
+        settings.silo_api_key,
+        timeoutMs,
+      );
+
+      if (result.success) {
+        return {
+          status: 'OK',
+          code: 1,
+          message: `Connected to ${result.serverName}`,
+          serverName: result.serverName,
+          version: result.version,
+        };
+      }
+
+      return {
+        status: 'NOK',
+        code: 0,
+        message: formatConnectionFailureMessage(
+          result.error,
+          'Failed to connect to Silo. Verify URL and API key.',
+        ),
+      };
+    } catch (error) {
+      logConnectionTestError(this.logger, 'Silo', error);
+      return {
+        status: 'NOK',
+        code: 0,
+        message: formatConnectionFailureMessage(
+          error,
+          'Failed to connect to Silo. Verify URL and API key.',
+        ),
+      };
+    }
+  }
+
+  /**
+   * Save Silo settings and initialize the service.
+   */
+  public async saveSiloSettings(
+    settings: SiloSetting,
+  ): Promise<BasicResponseDto> {
+    try {
+      const settingsDb = await this.settingsRepo.findOne({ where: {} });
+
+      const testResult = await this.testSilo(settings);
+      if (testResult.code !== 1) {
+        return {
+          status: 'NOK',
+          code: 0,
+          message: testResult.message || 'Connection test failed',
+        };
+      }
+
+      await this.settingsDataService.saveSettings({
+        ...settingsDb,
+        silo_url: settings.silo_url,
+        silo_api_key: settings.silo_api_key,
+        silo_server_name: testResult.serverName || null,
+        media_server_type: MediaServerType.SILO,
+      });
+
+      this.mediaServerFactory.uninitializeServer(MediaServerType.SILO);
+
+      await this.settingsDataService.init();
+
+      if (
+        settingsDb?.silo_url !== settings.silo_url ||
+        settingsDb?.silo_api_key !== settings.silo_api_key
+      ) {
+        await this.revalidateMediaServerDependentSettings();
+      }
+
+      this.logger.log('Silo settings saved successfully');
+      return { status: 'OK', code: 1, message: 'Success' };
+    } catch (error) {
+      this.logger.error('Error while saving Silo settings');
+      this.logger.debug(error);
+      const message =
+        error instanceof Error ? error.message : 'Failed to save settings';
+      return { status: 'NOK', code: 0, message };
+    }
+  }
+
+  /**
+   * Remove Silo settings.
+   */
+  public async removeSiloSettings(): Promise<BasicResponseDto> {
+    try {
+      const settingsDb = await this.settingsRepo.findOne({ where: {} });
+
+      await this.settingsDataService.saveSettings({
+        ...settingsDb,
+        silo_url: null,
+        silo_api_key: null,
+        silo_server_name: null,
+      });
+
+      this.mediaServerFactory.uninitializeServer(MediaServerType.SILO);
+
+      await this.settingsDataService.init();
+
+      this.logger.log('Silo settings cleared');
+      return { status: 'OK', code: 1, message: 'Success' };
+    } catch (error) {
+      this.logger.error('Error removing Silo settings');
+      this.logger.debug(error);
+      return { status: 'NOK', code: 0, message: 'Failed' };
+    }
+  }
+
   public async addSonarrSetting(
     settings: SonarrSetting,
   ): Promise<SonarrSettingResponseDto> {
@@ -1683,6 +1808,25 @@ export class SettingsOperationsService {
                 emby_url: this.settingsDataService.emby_url,
                 emby_api_key: this.settingsDataService.emby_api_key,
                 emby_user_id: this.settingsDataService.emby_user_id,
+              },
+              BACKGROUND_CONNECTION_TEST_TIMEOUT_MS,
+            )
+          ).status === 'OK'
+        );
+      }
+      case MediaServerType.SILO: {
+        if (
+          !this.settingsDataService.silo_url ||
+          !this.settingsDataService.silo_api_key
+        ) {
+          return false;
+        }
+        return (
+          (
+            await this.testSilo(
+              {
+                silo_url: this.settingsDataService.silo_url,
+                silo_api_key: this.settingsDataService.silo_api_key,
               },
               BACKGROUND_CONNECTION_TEST_TIMEOUT_MS,
             )

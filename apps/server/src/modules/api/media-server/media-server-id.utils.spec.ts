@@ -21,6 +21,15 @@ describe('media-server-id.utils', () => {
     it('returns false when Plex sees a numeric id', () => {
       expect(isForeignServerId(MediaServerType.PLEX, '12345')).toBe(false);
     });
+
+    it.each([
+      ['a852a27afe324084ae66db579ee3ee18', true],
+      ['movie-tmdb-12345', false],
+      // Silo items from before kind-prefixed ids kept numeric ones.
+      ['12345', false],
+    ])('on Silo, %j is foreign: %j', (value, foreign) => {
+      expect(isForeignServerId(MediaServerType.SILO, value)).toBe(foreign);
+    });
   });
 
   describe('shouldRefreshMetadataItemId', () => {

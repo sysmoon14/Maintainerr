@@ -14,6 +14,8 @@ import { MediaServerSwitchState } from './media-server-switch-state.service';
 import { MediaServerController } from './media-server.controller';
 import { MediaServerFactory } from './media-server.factory';
 import { PlexAdapterService } from './plex/plex-adapter.service';
+import { SiloAdapterService } from './silo/silo-adapter.service';
+import { SiloModule } from './silo/silo.module';
 
 /**
  * Media Server Module
@@ -41,12 +43,14 @@ import { PlexAdapterService } from './plex/plex-adapter.service';
     PlexApiModule,
     JellyfinModule,
     EmbyModule,
+    SiloModule,
   ],
   controllers: [MediaServerController],
   providers: [
     PlexAdapterService,
     JellyfinAdapterService,
     EmbyAdapterService,
+    SiloAdapterService,
     MediaServerFactory,
     MediaServerSwitchState,
     MediaServerSetupGuard,
@@ -63,6 +67,8 @@ import { PlexAdapterService } from './plex/plex-adapter.service';
     JellyfinAdapterService,
     // EmbyAdapterService is exported for EmbyGetterService (mirrors Jellyfin pattern).
     EmbyAdapterService,
+    // SiloAdapterService is exported for SiloGetterService (mirrors Jellyfin pattern).
+    SiloAdapterService,
     MediaServerFactory,
     MediaServerSwitchState,
     MediaServerSetupGuard,
