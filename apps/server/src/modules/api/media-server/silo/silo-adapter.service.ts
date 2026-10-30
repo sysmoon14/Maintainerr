@@ -840,14 +840,22 @@ export class SiloAdapterService implements IMediaServerService {
       // Read fresh at the start of every run. A failure fails the snapshot,
       // so items fall back to per-item reads rather than lose their marks.
       const marks = await this.getWatchedMarks(0, abortSignal);
-      for (const [itemId, itemMarks] of marks.byItem) {
-        snapshot.completed.set(
-          itemId,
-          SiloAdapterService.withMarks(
-            snapshot.completed.get(itemId) ?? [],
-            itemMarks,
-          ),
+      const ownProfiles = new Set(this.ownProfileIds);
+      const itemIds = new Set([
+        ...snapshot.completed.keys(),
+        ...marks.byItem.keys(),
+      ]);
+      for (const itemId of itemIds) {
+        const merged = SiloAdapterService.withMarks(
+          snapshot.completed.get(itemId) ?? [],
+          marks.byItem.get(itemId) ?? [],
+          ownProfiles,
         );
+        if (merged.length > 0) {
+          snapshot.completed.set(itemId, merged);
+        } else {
+          snapshot.completed.delete(itemId);
+        }
       }
 
       this.snapshotCache.data.set(SILO_WATCH_SNAPSHOT_KEY, snapshot);
@@ -1026,21 +1034,37 @@ export class SiloAdapterService implements IMediaServerService {
     const records = SiloAdapterService.withMarks(
       entries.map(SiloMapper.toWatchRecord),
       marks.byItem.get(itemId) ?? [],
+      new Set(this.ownProfileIds),
     );
     this.cache.data.set(cacheKey, records, SILO_CACHE_TTL.WATCH_HISTORY);
     return [...records];
   }
 
   /**
-   * Adds a profile's mark when it has no finished play of the item, so a
-   * finished play and the mark it leaves behind count once.
+   * Merges finished plays with the profiles' completed marks.
+   *
+   * For profiles in `ownProfiles` (the ones whose progress Maintainerr can
+   * read), the mark is the source of truth: Silo keeps finished plays in
+   * history when an item is marked unwatched (silo-server #3013) and only
+   * records a cutoff, which the history API does not expose. So a finished
+   * play counts only while that profile still has the item marked watched.
+   * Every finished play leaves a mark, so nothing watched is lost.
+   *
+   * Other accounts' profiles cannot be read, so their finished plays count
+   * as before. A profile's mark is added when it has no finished play of the
+   * item, so a finished play and the mark it leaves behind count once.
    */
   private static withMarks(
     plays: WatchRecord[],
     marks: WatchRecord[],
+    ownProfiles: ReadonlySet<string> = new Set(),
   ): WatchRecord[] {
-    const players = new Set(plays.map((record) => record.userId));
-    return [...plays, ...marks.filter((mark) => !players.has(mark.userId))];
+    const marked = new Set(marks.map((mark) => mark.userId));
+    const counted = plays.filter(
+      (play) => !ownProfiles.has(play.userId) || marked.has(play.userId),
+    );
+    const players = new Set(counted.map((record) => record.userId));
+    return [...counted, ...marks.filter((mark) => !players.has(mark.userId))];
   }
 
   /**

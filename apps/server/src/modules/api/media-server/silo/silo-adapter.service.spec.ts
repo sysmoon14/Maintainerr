@@ -664,6 +664,99 @@ describe('SiloAdapterService', () => {
       });
     });
 
+    describe('an item marked unwatched', () => {
+      // Silo keeps finished plays in history when an item is marked unwatched
+      // (silo-server #3013); only the completed progress goes. Ann finished
+      // the movie, then marked it unwatched. Bob is on another account, so
+      // his progress cannot be read and his finished play still counts.
+      const markedUnwatched = () =>
+        silo
+          .on('GET', `/catalog/items/${movie.content_id}`, movie)
+          .on(
+            'GET',
+            '/admin/playback-history',
+            page([
+              play({ profile_id: 'ann-primary' }),
+              play({ user_id: '2', profile_id: 'bob' }),
+            ]),
+          )
+          .on('GET', '/progress', completedProgress({}));
+
+      it('no longer counts as seen by that profile in the snapshot', async () => {
+        markedUnwatched();
+
+        await service.prefetchWatchHistory({ libraryId: '1' });
+
+        await expect(service.getItemSeenBy(movie.content_id)).resolves.toEqual([
+          'bob',
+        ]);
+      });
+
+      it('no longer counts in the live watch state that feeds deletions', async () => {
+        markedUnwatched();
+
+        await expect(service.getWatchState(movie.content_id)).resolves.toEqual({
+          viewCount: 1,
+          isWatched: true,
+        });
+      });
+
+      it('keeps counting own profiles that still have it marked watched', async () => {
+        silo
+          .on('GET', `/catalog/items/${movie.content_id}`, movie)
+          .on(
+            'GET',
+            '/admin/playback-history',
+            page([
+              play({ profile_id: 'ann-primary' }),
+              play({ profile_id: 'kids' }),
+            ]),
+          )
+          .on(
+            'GET',
+            '/progress',
+            completedProgress({
+              kids: [[movie.content_id, '2026-03-04T00:00:00.000Z']],
+            }),
+          );
+
+        await service.prefetchWatchHistory({ libraryId: '1' });
+
+        await expect(service.getItemSeenBy(movie.content_id)).resolves.toEqual([
+          'kids',
+        ]);
+      });
+
+      it('is not watched at all when only own profiles had played it', async () => {
+        silo
+          .on('GET', `/catalog/items/${movie.content_id}`, movie)
+          .on(
+            'GET',
+            '/admin/playback-history',
+            page([
+              play({ profile_id: 'ann-primary' }),
+              play({ profile_id: 'kids' }),
+            ]),
+          )
+          .on('GET', '/progress', completedProgress({}));
+
+        await expect(service.getWatchState(movie.content_id)).resolves.toEqual({
+          viewCount: 0,
+          isWatched: false,
+        });
+      });
+
+      it('still keeps the plays for the play count', async () => {
+        markedUnwatched();
+
+        await service.prefetchWatchHistory({ libraryId: '1' });
+
+        await expect(service.getTotalPlayCount(movie.content_id)).resolves.toBe(
+          2,
+        );
+      });
+    });
+
     it('fails rather than answering "never watched" when marks cannot be read', async () => {
       silo
         .on('GET', `/catalog/items/${movie.content_id}`, movie)
