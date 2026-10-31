@@ -54,6 +54,39 @@ export class SonarrGetterService {
     return this.mediaServerFactory.getService();
   }
 
+  /**
+   * The file path of an episode whose listing carried none, read only when
+   * its TVDB id names no Sonarr episode with a file. A failed read leaves the
+   * path unset, so the match falls back to the TVDB id and numbers as before.
+   */
+  private async readEpisodePathWhenUnmatched(
+    item: MediaItem,
+    getShowEpisodes: () => Promise<SonarrEpisode[] | undefined>,
+    seriesTvdbId: number,
+  ): Promise<string | undefined> {
+    if (hasSonarrEpisodeIdentity(item)) {
+      const episodes = await getShowEpisodes();
+      // An unreadable list fails closed below; a read here would not help.
+      if (episodes === undefined) {
+        return undefined;
+      }
+      if (findEpisodeForMediaItem(episodes, [], item, seriesTvdbId)?.hasFile) {
+        return undefined;
+      }
+    }
+
+    try {
+      const mediaServer = await this.getMediaServer();
+      return (await mediaServer.getMetadata(item.id))?.path;
+    } catch (error) {
+      this.logger.debug(
+        `Sonarr-Getter - Could not read the file path of '${item.title}' with id '${item.id}'.`,
+      );
+      this.logger.debug(error);
+      return undefined;
+    }
+  }
+
   async get(
     id: number,
     libItem: MediaItem,
@@ -259,11 +292,22 @@ export class SonarrGetterService {
       // below reads that episode by Sonarr's numbers; otherwise by the media
       // server's. An unreadable list fails closed, since the numbers could
       // name the wrong episode; a series-level property skips the match.
-      if (
+      const readsEpisode =
         dataType === 'episode' &&
-        !SonarrGetterService.SERIES_LEVEL_PROPERTIES.has(prop.name) &&
-        hasSonarrEpisodeIdentity(origLibItem)
-      ) {
+        !SonarrGetterService.SERIES_LEVEL_PROPERTIES.has(prop.name);
+
+      // A server whose listings carry no file path (Silo) has it on a
+      // single-item read only. Pay that read only when the TVDB id names no
+      // Sonarr episode with a file, the case the file match exists for.
+      if (readsEpisode && !origLibItem.path) {
+        origLibItem.path = await this.readEpisodePathWhenUnmatched(
+          origLibItem,
+          getShowEpisodes,
+          showResponse.tvdbId,
+        );
+      }
+
+      if (readsEpisode && hasSonarrEpisodeIdentity(origLibItem)) {
         const episodes = await getShowEpisodes();
         const episodeFiles = origLibItem.path
           ? await getShowEpisodeFiles()
