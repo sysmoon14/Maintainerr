@@ -1572,13 +1572,17 @@ describe('SonarrGetterService', () => {
         episodes?: SonarrEpisode[] | undefined;
         item?: Partial<MediaItem>;
         propertyId?: number;
+        // The path a single-item read of the episode answers with.
+        episodePath?: string;
       } = {},
     ) => {
       jest.useFakeTimers().setSystemTime(new Date('2026-06-13T12:00:00Z'));
       const collectionMedia = createCollectionMedia('episode');
       collectionMedia.collection.sonarrSettingsId = 1;
-      mockMediaServer.getMetadata.mockResolvedValue(
-        createMediaItem({ type: 'show' }),
+      mockMediaServer.getMetadata.mockImplementation(async (itemId) =>
+        itemId === 'episode-1'
+          ? createMediaItem({ type: 'episode', path: reads.episodePath })
+          : createMediaItem({ type: 'show' }),
       );
       const series = createSonarrSeries({ id: 7, seasons: [] });
       const sonarrApi = mockSonarrApi(series);
@@ -1631,6 +1635,7 @@ describe('SonarrGetterService', () => {
       return sonarrGetterService.get(
         reads.propertyId ?? 32,
         createMediaItem({
+          id: 'episode-1',
           type: 'episode',
           parentIndex: 2026,
           index: 1,
@@ -1649,6 +1654,18 @@ describe('SonarrGetterService', () => {
 
     it('ranks the episode its file holds over the one its numbers or TVDB id name', async () => {
       await expect(callDailyRankByFile()).resolves.toBe(2);
+    });
+
+    // Silo listings carry no file path; its single-item read does. The TVDB
+    // id names episode 1, which has no file, so the path is read.
+    it('ranks by the file a single-item read names when the listing has no path', async () => {
+      await expect(
+        callDailyRankByFile({
+          item: { path: undefined },
+          episodePath:
+            '/media/tv/Sample Series/Season 2026/Sample Series - 2026-06-10.mkv',
+        }),
+      ).resolves.toBe(2);
     });
 
     it('ranks an item with no episode number by its file, not its air date', async () => {
