@@ -1,3 +1,4 @@
+import { emptyProviderIds } from '../media-provider-ids.utils';
 import { SiloMapper } from './silo.mapper';
 
 describe('SiloMapper', () => {
@@ -19,6 +20,31 @@ describe('SiloMapper', () => {
       { source: 'rottenTomatoes', value: 8.4, type: 'audience' },
     ]);
   });
+
+  // Catalog listings carry no provider ids, and the UI finds a poster by
+  // them, so without these a library showed no posters. An episode's id
+  // names its series, which must not read as the episode's own TVDB id.
+  it.each([
+    ['movie-tmdb-228064', 'movie', { tmdb: ['228064'] }],
+    ['movie-imdb-tt0944947', 'movie', { imdb: ['tt0944947'] }],
+    ['series-tvdb-296762', 'series', { tvdb: ['296762'] }],
+    ['episode-tvdb-296762-1-5', 'episode', {}],
+    ['local-0123abcd', 'movie', {}],
+  ] as const)(
+    'reads the provider id of a listed %s from its content id',
+    (contentId, type, expected) => {
+      const { providerIds } = SiloMapper.toMediaItem({
+        content_id: contentId,
+        type,
+        title: 'Sample',
+      });
+
+      expect(providerIds).toEqual({
+        ...emptyProviderIds(),
+        ...expected,
+      });
+    },
+  );
 
   it.each([
     ['season', { parentId: 'series-tvdb-9', grandparentId: undefined }],

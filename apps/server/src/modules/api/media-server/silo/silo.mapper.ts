@@ -195,7 +195,28 @@ export class SiloMapper {
     addProviderId(providerIds, 'imdb', item.imdb_id);
     addProviderId(providerIds, 'tmdb', item.tmdb_id);
     addProviderId(providerIds, 'tvdb', item.tvdb_id);
+    if (!item.imdb_id && !item.tmdb_id && !item.tvdb_id) {
+      const anchor = SiloMapper.toAnchorProviderId(item.content_id);
+      addProviderId(providerIds, anchor?.provider, anchor?.id);
+    }
     return providerIds;
+  }
+
+  /**
+   * The provider id a movie or series content id is built from
+   * (`movie-tmdb-228064`, `series-tvdb-296762`). Catalog listings carry no
+   * provider ids of their own, only detail reads do, and the content id is
+   * Silo's frozen natural key, so it names the same id. A season or episode
+   * id embeds its series' id, which is not the item's own, so it is skipped.
+   */
+  private static toAnchorProviderId(
+    contentId: string | undefined,
+  ): { provider: string; id: string } | undefined {
+    const parts = (contentId ?? '').split('-');
+    if (parts.length !== 3 || (parts[0] !== 'movie' && parts[0] !== 'series')) {
+      return undefined;
+    }
+    return parts[2] ? { provider: parts[1], id: parts[2] } : undefined;
   }
 
   private static toDurationMs(item: SiloCatalogItem): number | undefined {
