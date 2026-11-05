@@ -134,6 +134,8 @@ export interface SiloCatalogItem {
   tvdb_id?: string;
   folder_paths?: string[];
   versions?: SiloVersion[];
+  /** An episode list's files; a detail read carries `versions` instead */
+  files?: SiloVersion[];
   cast?: SiloCastMember[];
 }
 
