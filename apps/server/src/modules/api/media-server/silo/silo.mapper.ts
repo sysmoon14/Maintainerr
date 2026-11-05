@@ -107,7 +107,9 @@ export class SiloMapper {
       type,
       addedAt: new Date(item.added_at ?? ''),
       providerIds: SiloMapper.toProviderIds(item),
-      mediaSources: SiloMapper.toMediaSources(item.versions),
+      // An episode list names its files, not versions. A show or season is
+      // sized from those, so reading only versions sized every one at 0.
+      mediaSources: SiloMapper.toMediaSources(item.versions ?? item.files),
       path: item.folder_paths?.[0] ?? item.versions?.[0]?.file_path,
       library: context.library ?? { id: '', title: '' },
       summary: item.overview || undefined,

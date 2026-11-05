@@ -46,6 +46,21 @@ describe('SiloMapper', () => {
     },
   );
 
+  // A show or season collection is sized from its episodes, which come from
+  // an episode list that names `files` rather than `versions`.
+  it('sizes an episode from the files an episode list names', () => {
+    const { mediaSources } = SiloMapper.toMediaItem({
+      content_id: 'episode-tvdb-9-2-1',
+      type: 'episode',
+      title: 'Sample',
+      files: [{ file_id: 'file-1', file_size: 1_500_000_000 }],
+    });
+
+    expect(mediaSources.map((source) => source.sizeBytes)).toEqual([
+      1_500_000_000,
+    ]);
+  });
+
   it.each([
     ['season', { parentId: 'series-tvdb-9', grandparentId: undefined }],
     [
