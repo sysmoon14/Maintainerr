@@ -193,6 +193,14 @@ describe('database migrations', () => {
       expect(settings.silo_url).toMatchObject(nullableVarchar);
       expect(settings.silo_api_key).toMatchObject(nullableVarchar);
       expect(settings.silo_server_name).toMatchObject(nullableVarchar);
+
+      // AddCollectionOverlayScope: every level by default, so an existing
+      // collection keeps drawing on its seasons and episodes.
+      expect(collection.overlayScope).toMatchObject({
+        type: 'varchar',
+        notnull: 1,
+        dflt_value: "'all'",
+      });
     } finally {
       await ds.destroy();
     }
@@ -205,54 +213,54 @@ describe('database migrations', () => {
     // emits a full create-temporary-table / copy / drop / rename rebuild for the
     // changed tables. A hand-written ALTER shortcut lacks it - this is the
     // cheapest signal the migration was generated rather than authored. The
-    // newest migration adds settings columns, so it rebuilds that table.
-    expect(src).toContain('CREATE TABLE "temporary_settings"');
+    // newest migration adds a collection column, so it rebuilds that table.
+    expect(src).toContain('CREATE TABLE "temporary_collection"');
   });
 
   // The rebuild in (3) drops and recreates the tables, so its INSERT...SELECT is
   // the only thing carrying an existing install's rows across. Every other test
   // here migrates an empty DB, where a rebuild that copies nothing looks
   // identical to one that copies correctly.
-  it('carry existing settings and collections through the newest rebuild', async () => {
+  it('carry existing collections and what references them through the newest rebuild', async () => {
     const newest = all[all.length - 1];
     const ds = await makeDS(all.slice(0, -1).map((m) => m.cls)).initialize();
     try {
       await ds.runMigrations();
       await ds.query(
-        `INSERT INTO settings ("id", "applicationTitle", "applicationUrl", "locale", "metadata_provider_preference", "media_server_type", "seerr_url", "seerr_api_key", "emby_url", "emby_api_key") VALUES (1, 'Media Manager', 'http://localhost:6246', 'en', 'tmdb_primary', 'emby', 'http://seerr.local', 'seerr-key', 'http://emby.local:8096', 'emby-key')`,
+        `INSERT INTO collection ("id", "libraryId", "title", "type", "mediaServerType", "arrAction", "deleteAfterDays", "overlayEnabled") VALUES (1, '2', 'Sample Series Collection', 'show', 'plex', 0, 30, 1)`,
       );
       await ds.query(
-        `INSERT INTO radarr_settings ("id", "serverName", "tagExclusions", "exclusionTag") VALUES (1, 'HD', 1, 'keep')`,
+        `INSERT INTO collection_media ("collectionId", "mediaServerId", "addDate") VALUES (1, 'show-1', '2026-10-01')`,
       );
       await ds.query(
-        `INSERT INTO collection ("libraryId", "title", "type", "mediaServerType", "radarrSettingsId") VALUES ('1', 'Sample Collection', 'movie', 'plex', 1)`,
+        `INSERT INTO overlay_item_state ("collectionId", "mediaServerId", "daysLeftShown") VALUES (1, 'episode-1', 12)`,
       );
 
       // Wrapped as the migration executor does, which turns foreign keys off
-      // so a rebuilt table may be one that other rows reference.
+      // so the dropped collection table cascades into neither table above.
       const runner = ds.createQueryRunner();
       await runner.beforeMigration();
       await new newest.cls().up(runner);
       await runner.afterMigration();
       await runner.release();
 
-      const [settings] = await ds.query(`SELECT * FROM settings`);
-      expect(settings).toMatchObject({
-        applicationTitle: 'Media Manager',
-        media_server_type: 'emby',
-        seerr_url: 'http://seerr.local',
-        seerr_api_key: 'seerr-key',
-        emby_url: 'http://emby.local:8096',
-        emby_api_key: 'emby-key',
-        silo_url: null,
-      });
-      const [server] = await ds.query(`SELECT * FROM radarr_settings`);
-      expect(server).toMatchObject({ tagExclusions: 1, exclusionTag: 'keep' });
       const [collection] = await ds.query(`SELECT * FROM collection`);
       expect(collection).toMatchObject({
-        title: 'Sample Collection',
-        radarrSettingsId: 1,
+        title: 'Sample Series Collection',
+        overlayEnabled: 1,
+        deleteAfterDays: 30,
+        // Saved before the scope existed: it keeps every level.
+        overlayScope: 'all',
       });
+      expect(await ds.query(`SELECT * FROM collection_media`)).toEqual([
+        expect.objectContaining({ collectionId: 1, mediaServerId: 'show-1' }),
+      ]);
+      expect(await ds.query(`SELECT * FROM overlay_item_state`)).toEqual([
+        expect.objectContaining({
+          collectionId: 1,
+          mediaServerId: 'episode-1',
+        }),
+      ]);
     } finally {
       await ds.destroy();
     }
@@ -266,16 +274,20 @@ describe('database migrations', () => {
     const ds = await makeDS(all.map((m) => m.cls)).initialize();
     try {
       await ds.runMigrations();
-      expect(byName(await columns(ds, 'settings')).silo_url).toBeDefined();
+      expect(
+        byName(await columns(ds, 'collection')).overlayScope,
+      ).toBeDefined();
       await ds.query(
-        `INSERT INTO settings ("id", "applicationTitle", "applicationUrl", "locale", "metadata_provider_preference") VALUES (1, 'Fresh', 'http://localhost:6246', 'en', 'tmdb_primary')`,
+        `INSERT INTO collection ("libraryId", "title", "type", "overlayScope") VALUES ('2', 'Fresh', 'show', 'show_only')`,
       );
 
       await ds.undoLastMigration();
 
-      expect(byName(await columns(ds, 'settings')).silo_url).toBeUndefined();
-      const [row] = await ds.query(`SELECT "applicationTitle" FROM settings`);
-      expect(row.applicationTitle).toBe('Fresh');
+      expect(
+        byName(await columns(ds, 'collection')).overlayScope,
+      ).toBeUndefined();
+      const [row] = await ds.query(`SELECT "title" FROM collection`);
+      expect(row.title).toBe('Fresh');
       const [{ c }] = await ds.query(`SELECT COUNT(*) AS c FROM migrations`);
       expect(Number(c)).toBe(all.length - 1);
     } finally {
